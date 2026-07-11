@@ -1,0 +1,9 @@
+.env
+.cache
+.venv/
+__pycache__/
+*.pyc
+.spotify_user_cache
+sync_queue.json
+.sync_scan_state.json
+.claude/settings.local.json
