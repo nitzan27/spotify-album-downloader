@@ -101,3 +101,4 @@ render deploys create srv-d99me367r5hc73bf8qf0 --confirm
 - Spotify Client Credentials rate limits are shared app-wide across every user of the site (same `SPOTIFY_CLIENT_ID` used by `album_downloader.py`'s CLI path and, historically, hit hard by `sync_missing.py`'s library scans) — fine at friend-group album-lookup volumes, but a single shared quota.
 - Ephemeral disk means zips are transient by design (TTL cleanup), not persistent storage.
 - YouTube's bot-check on datacenter IPs (see the `extractor_args` note above) is mitigated, not eliminated — if it resurfaces, check yt-dlp's changelog/issues for the current workaround before assuming the app is broken.
+
