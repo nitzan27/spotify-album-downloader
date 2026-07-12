@@ -188,6 +188,11 @@ def download_track_audio(artist: str, title: str, file_path: str) -> None:
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        # The web client's extraction path triggers YouTube's "Sign in to
+        # confirm you're not a bot" check far more readily from datacenter
+        # IPs (e.g. cloud hosts) than from residential ones; the Android/iOS
+        # client's API doesn't hit the same check as of this writing.
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
