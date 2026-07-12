@@ -8,3 +8,5 @@ sync_queue.json
 .sync_scan_state.json
 .git/
 .claude/
+web/frontend/node_modules/
+web/frontend/dist/

@@ -108,7 +108,11 @@ def get_spotify_client() -> spotipy.Spotify:
     # would hang a caller (e.g. a web job's worker thread) instead of failing
     # fast. See fetch_album_metadata() for where the resulting 429 is turned
     # into a clean, user-facing error instead.
-    return spotipy.Spotify(auth_manager=auth_manager, retries=0)
+    # status_retries=0 too: retries=0 alone only zeroes urllib3's overall
+    # `total` retry count - status-code retries (429/500/502/503/504) are a
+    # separate counter that defaults to 3 regardless of `retries`, so a run
+    # of 502s would still silently retry a few times with backoff first.
+    return spotipy.Spotify(auth_manager=auth_manager, retries=0, status_retries=0)
 
 
 def fetch_album_metadata(sp: spotipy.Spotify, artist_name: str, album_name: str):

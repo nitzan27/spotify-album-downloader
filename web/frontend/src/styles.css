@@ -1,0 +1,254 @@
+/* Spotify-dark theme tokens - ported from the pre-React web/templates/index.html
+   reskin so the SPA continues that look rather than starting a new one. */
+:root {
+  --bg: #121212;
+  --card: #181818;
+  --elevated: #282828;
+  --green: #1DB954;
+  --green-hover: #1ED760;
+  --text: #FFFFFF;
+  --muted: #B3B3B3;
+  --error: #F15E6C;
+  --error-bg: rgba(241, 94, 108, 0.12);
+  --success-bg: rgba(29, 185, 84, 0.12);
+  --warning: #F5A623;
+  --warning-bg: rgba(245, 166, 35, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  margin: 0;
+}
+
+#root {
+  display: flex;
+  justify-content: center;
+  padding: 2.5rem 1.5rem;
+}
+
+.app {
+  width: 100%;
+  max-width: 32rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.25rem;
+}
+
+.brand h1 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 1.75rem 1.5rem;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+.card h2 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+}
+
+label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+input {
+  background: var(--elevated);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.95rem;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s ease;
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+input:focus {
+  border-color: var(--green);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+button {
+  background: var(--green);
+  color: #000000;
+  border: none;
+  border-radius: 500px;
+  padding: 0.75rem 1.4rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--green-hover);
+  transform: scale(1.02);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+  transform: none;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--green);
+  border: 1px solid var(--green);
+}
+
+button.secondary:hover:not(:disabled) {
+  background: var(--green);
+  color: #000000;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.status {
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+}
+
+.status.progress {
+  background: var(--elevated);
+  color: var(--muted);
+}
+
+.status.error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.status.done {
+  background: var(--success-bg);
+  color: var(--text);
+}
+
+.status.rate_limited {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.status .status-text {
+  flex: 1;
+}
+
+.spinner {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.15rem;
+  border: 2px solid rgba(179, 179, 179, 0.3);
+  border-top-color: var(--muted);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+a.download {
+  display: inline-block;
+  color: var(--green);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+a.download:hover {
+  text-decoration: underline;
+}
+
+.result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 20rem;
+  overflow-y: auto;
+  margin: 1rem 0;
+}
+
+.result-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--elevated);
+  border-radius: 6px;
+}
+
+.result-item input[type="checkbox"] {
+  width: auto;
+  margin-top: 0.2rem;
+  accent-color: var(--green);
+}
+
+.result-item .titles {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+}
+
+.result-item.already-downloaded {
+  opacity: 0.55;
+}
+
+.job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}

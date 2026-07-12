@@ -8,7 +8,7 @@ Two Python CLI scripts plus a small web app, sharing one project:
 
 - **[album_downloader.py](album_downloader.py)** — takes an artist + album name, looks up the official tracklist and cover art on Spotify, downloads matching audio from YouTube, and writes fully-tagged mp3 files into a per-album folder. Its core `download_album()` pipeline is also reused by the web app (see below).
 - **[sync_missing.py](sync_missing.py)** — scans your Spotify library for tracks that are region-locked in your market and not yet downloaded, and produces a queue that `album_downloader.py` can consume.
-- **[web/](web/)** — a FastAPI web app (friends/invite-only, gated by a shared passcode) that lets other people submit artist/album downloads and get a zip back, without needing their own machine set up. Deployed to Render; see "web/ (multi-user web app)" below.
+- **[web/](web/)** — a FastAPI + React/TypeScript web app (friends/invite-only — access control is just not sharing the URL, no site-wide login) that lets other people submit artist/album downloads and get a zip back, or log into their **own** Spotify account for a personalized region-lock scan (reusing `sync_missing.py`'s logic, adapted to run per-user on a server — see `web/scan_adapter.py`). Deployed to Render; see `web/CLAUDE.md` for architecture and deployment details.
 
 ## Running
 
@@ -23,7 +23,8 @@ Requires `ffmpeg` on PATH (used by yt-dlp to transcode to mp3). Credentials live
 ```
 SPOTIFY_CLIENT_ID=...
 SPOTIFY_CLIENT_SECRET=...
-SPOTIFY_REDIRECT_URI=http://127.0.0.1:8080/callback   # only needed by sync_missing.py
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:8080/callback       # only needed by sync_missing.py
+SPOTIFY_WEB_REDIRECT_URI=http://127.0.0.1:8000/callback   # only needed by web/ (its own callback, not the above)
 ```
 
 Free credentials from https://developer.spotify.com/dashboard. There is no test suite, linter, or build step in this repo.
@@ -46,13 +47,13 @@ Filenames use `sanitize_filename()` for both the album folder name and each trac
 
 Each track is wrapped in its own try/except in the main loop so one failed download or tag operation doesn't abort the rest of the album; failures are reported through `progress_callback("track_done", success=False, error=...)` and the loop continues. `download_album()` returns the destination folder path.
 
-**Errors are raised, not `sys.exit()`'d, from inside the pipeline.** `get_spotify_client()` and `fetch_album_metadata()` raise `SpotifyLookupError` (a plain `Exception`) instead of calling `sys.exit(1)` — this only matters because `download_album()` is reused from a non-main thread by the web app's job worker, where `sys.exit()` would silently kill just that thread and leave a job hung forever instead of surfacing an error. The CLI's `__main__` block catches `SpotifyLookupError` and does the `print` + `exit(1)` there instead, preserving the original console behavior. A Spotify 429 specifically is caught and turned into a short "Spotify rate limit reached" message (`_describe_spotify_exception`) rather than hanging — `get_spotify_client()` sets `retries=0` for the same reason `sync_missing.py` does (see below): spotipy's default retry behavior sleeps for the server's `Retry-After` duration, which can be hours.
+**Errors are raised, not `sys.exit()`'d, from inside the pipeline.** `get_spotify_client()` and `fetch_album_metadata()` raise `SpotifyLookupError` (a plain `Exception`) instead of calling `sys.exit(1)` — this only matters because `download_album()` is reused from a non-main thread by the web app's job worker, where `sys.exit()` would silently kill just that thread and leave a job hung forever instead of surfacing an error. The CLI's `__main__` block catches `SpotifyLookupError` and does the `print` + `exit(1)` there instead, preserving the original console behavior. A Spotify 429 specifically is caught and turned into a short "Spotify rate limit reached" message (`_describe_spotify_exception`) rather than hanging — `get_spotify_client()` sets `retries=0, status_retries=0` for the same reason `sync_missing.py` does (see below): spotipy's default retry behavior sleeps for the server's `Retry-After` duration, which can be hours, and `retries=0` alone doesn't fully disable that (see the rate-limit note below — `status_retries` is a separate counter).
 
 **`progress_callback(event, **data)`** decouples progress reporting from `print()`. The default (`_default_progress_callback`) reproduces the CLI's original console output exactly. The web app passes its own callback that writes into a `Job.progress` string instead (see `web/downloader_adapter.py`). Events: `fetching_metadata`, `output_folder`, `track_start`, `track_done` (`success`/`error` kwargs), `done`.
 
 ## sync_missing.py (region-lock sync)
 
-Scans the logged-in user's saved albums + playlists for tracks unavailable in their market (`DEFAULT_MARKET`, currently `"IL"`), cross-references against `BASE_MUSIC_PATH`, and writes/prints a sync queue rather than downloading directly.
+Scans the logged-in user's saved albums + liked songs + playlists for tracks unavailable in their market (`DEFAULT_MARKET`, currently `"IL"`), cross-references against `BASE_MUSIC_PATH`, and writes/prints a sync queue rather than downloading directly. Its `sp`-parameterized helpers (`_gather_library_albums`, `_track_key`, `_chunked`, `_fetch_album_tracks_batch`, `_locked_keys_for_batch`, `_load_cache`/`_save_cache`) are also reused directly by the web app's `web/scan_adapter.py` to run the same scan per-user on a server — see `web/CLAUDE.md`.
 
 ```
 python sync_missing.py            # scan, print, and save the queue to sync_queue.json
@@ -64,40 +65,15 @@ python album_downloader.py sync_queue.json   # inspect/edit the queue first, the
 
 **Detecting region-lock without false positives.** Spotify sometimes swaps in a new track ID for the same song (explicit-version/copyright re-uploads, common on hip-hop albums) independent of actual market availability. Comparing raw track IDs between an unrestricted `album_tracks` call and a market-scoped one therefore produces false "region-locked" flags. `_track_key()` instead identifies a track by `(disc_number, track_number, sanitized lowercase name)`, which stays stable across those re-uploads; `_locked_keys_for_batch()` diffs on this key, not on ID.
 
-**Rate-limit handling.** Checking N albums naively costs 2 `album_tracks()` calls each; on a large library (400+ saved albums) this is enough to trip Spotify's rate limiter, and spotipy's default retry behavior silently sleeps for whatever `Retry-After` Spotify returns (can be hours). To avoid this:
-- `_fetch_album_tracks_batch()` uses the "Get Several Albums" endpoint (`sp.albums()`, up to 20 IDs/call) instead of one call per album — about a 20x reduction in request volume.
-- The client is constructed with `retries=0` so a 429 raises immediately as `SpotifyException` instead of spotipy auto-sleeping.
-- `scan_region_locked_albums()` checkpoints progress (scanned album IDs + queue so far) to `.sync_scan_state.json` (gitignored) after every batch of 20, and on a 429 saves state and exits cleanly. Re-running the script resumes from the checkpoint instead of re-scanning everything.
+**A durable cache makes repeat scans cheap, not just a single scan reliable.** The old design only checkpointed the region-lock-check phase and threw that checkpoint away on success, so a routine re-scan of an already-scanned, unchanged library cost exactly as much as the first scan — on a large account (400+ saved albums, thousands of liked songs, 90+ playlists) that alone was enough to trip Spotify's rate limiter *every time you ran it*, not just once. `.spotify_scan_cache.json` (`CACHE_PATH`, gitignored) fixes this by never being deleted and being updated incrementally as the scan progresses:
+- **Saved albums** (`_gather_saved_albums`): `/me/albums` returns newest-added-first, so pagination stops as soon as it reaches an album id already in the cache — only genuinely new saves cost a call.
+- **Liked songs** (`_gather_liked_song_albums`): `/me/tracks` ("Liked Songs" — distinct from saved *albums*, and previously not scanned at all) is also newest-saved-first, so the same early-stop trick applies, just keyed by the saved track's id instead of an album id (several liked songs commonly share one album). A large Liked Songs library can span hundreds of pages, so an in-progress walk also resumes via an `offset` after a crash instead of restarting at page 1 — but that resume offset (`in_progress_offset`) is kept deliberately separate from `newest_seen_track_id` (the "stop early on the *next* routine re-scan" marker), which is only ever set once a walk has verifiably reached the true bottom of the list. Conflating the two was an actual bug caught during development: a crash mid-walk on the very first (cold) scan would otherwise make the next run believe everything past the crash point was already recorded, silently dropping a chunk of the library instead of just costing a redo.
+- **Playlists** (`_gather_playlist_albums`): each playlist's Spotify `snapshot_id` (bumped whenever its contents change) is compared to the cached value; an unchanged playlist's tracks are never re-fetched, and the cache is saved after every playlist (not just at the end), so an interrupted scan only redoes the playlist it was on — this is exactly what a real 502 storm hit partway through playlist ~90 of 95.
+- **Region-lock status** (`_is_lock_status_stale`, `LOCK_STATUS_TTL_DAYS = 30`): each album's lock-check result is cached for 30 days (lock status rarely changes), so most albums skip the 2-call `_locked_keys_for_batch()` lookup entirely on a repeat scan — this is the single biggest lever, since it's the most expensive phase.
+
+Because every unit of work is saved to the cache as it happens, this cache *is* the resume mechanism too — there's no separate in-memory "checkpoint" concept. Re-running after an interruption and re-running for a routine repeat scan are the same code path; the cache dict just already has more in it the second time. Known, accepted inaccuracy: an album you later *unsave*, or a song you *unlike*, lingers in the cached id list forever (costs a wasted lock-check every ~30 days, never an incorrect result) — not worth solving given how rarely it matters. Both `user-library-read` reads (`/me/albums` and `/me/tracks`) are covered by the same OAuth scope already requested (`USER_SCOPE`), so adding liked songs needed no scope/re-auth change.
+
+**Rate-limit / error handling.** The client is constructed with `retries=0, status_retries=0` so a 429 (or a run of 502s) raises immediately as `SpotifyException` instead of spotipy auto-sleeping. **Both matter**: `retries=0` only zeroes urllib3's overall `total` retry budget — status-code retries (429/500/502/503/504) are tracked by a *separate* `status` counter that defaults to 3 regardless of `retries`, so leaving `status_retries` unset still silently retries a few times with backoff before finally raising (confirmed live: a 502 storm scanning a 400+ album/95-playlist library via the web app cost real time before failing, prompting this fix — see `web/CLAUDE.md`). `scan_region_locked_albums()` treats 429 *and* 500/502/503/504 alike (`_RECOVERABLE_HTTP_STATUSES`) as "save the cache and stop cleanly" rather than letting only 429 be recoverable and everything else crash uncaught.
 
 `sync_queue.json` (gitignored) is the human-facing output — a list of `{"artist", "album", "missing_titles"}` — meant to be inspected/edited before feeding it to `album_downloader.py`.
-
-## web/ (multi-user web app)
-
-A FastAPI frontend so friends can use the downloader without setting up Python/ffmpeg/Spotify credentials themselves. Scope is deliberately narrow: **friends/invite-only, not public** — running a public YouTube-audio-ripping service for arbitrary strangers is a real copyright/ToS risk (cf. youtube-mp3.org-style shutdowns); this stays small and gated. Only the album-search-and-download flow is exposed; `sync_missing.py`'s per-user region-lock sync is not part of the web app.
-
-**Run locally:**
-```
-.venv\Scripts\uvicorn web.app:app --reload --port 8000
-```
-Needs `SITE_USERNAME`/`SITE_PASSWORD` set (in `.env`) in addition to the Spotify credentials.
-
-**Architecture** (all in `web/`):
-- `jobs.py` — in-memory `Job` registry + a bounded `asyncio.Queue` with a small fixed-size pool (`WORKER_COUNT = 2`) of consumer tasks, so concurrent submissions don't spawn unbounded simultaneous yt-dlp/ffmpeg subprocesses. **Must run with a single uvicorn worker** (`--workers 1`) — job state lives in one process's memory; a second worker process would never see jobs created on the first. Expired jobs (`JOB_TTL_SECONDS`, 1 hour) are evicted by `cleanup_loop()`.
-- `downloader_adapter.py` — bridges a `Job` to `album_downloader.download_album()`: builds a per-job temp dir (`TEMP_ROOT/<job_id>/<album folder>/` — the job_id segment means two concurrent downloads of the same album can't collide), passes a `progress_callback` that writes into `Job.progress`, zips the result, then deletes the uncompressed mp3s so only the zip remains on disk.
-- `auth.py` — HTTP Basic Auth (`SITE_USERNAME`/`SITE_PASSWORD` env vars, `secrets.compare_digest`). Only meaningful over HTTPS (Render's free `*.onrender.com` domains provide this automatically).
-- `app.py` — routes (`GET /`, `POST /jobs`, `GET /status/{id}`, `GET /download/{id}`) live on an `APIRouter` with the auth dependency applied at router level, so a newly added route is gated by construction rather than needing auth added per-route. Only `/healthz` (for Render's health checks) is unauthenticated — this also means a leaked `/download/{id}` URL alone isn't enough, since it still needs the passcode.
-- `templates/index.html` — a single Jinja2 page: artist/album form → polls `/status/{id}` → reveals a download link.
-
-**Deployment:** Render.com free "Web Service" tier, Docker-based (`Dockerfile` installs `ffmpeg` via apt, then `pip install -r requirements.txt`; `CMD` binds `0.0.0.0:$PORT` with `--workers 1`). Rejected alternatives: Fly.io no longer has a real free tier; Cloud Run only allocates CPU while a request is in flight by default, which conflicts with background job processing; a raw free VM (e.g. Oracle Always Free) is genuinely free but means self-managing an OS/Docker daemon, which is what hosting on Render avoids. Accepted trade-off: the free tier spins down after ~15 min idle (~30-60s cold start on the next request).
-
-The Render service here (`spotify-album-downloader`, id `srv-d99me367r5hc73bf8qf0`) was originally created via the Render CLI against a **public** GitHub repo URL rather than through Render's GitHub App integration, so auto-deploy-on-push didn't work at first (Render could clone the public repo for a build, but had no webhook telling it a new commit landed). This was fixed by installing the Render GitHub App on the repo (`github.com/apps/render/installations/new`, with repository access scoped to just this repo) and reconnecting the service's **Source** from the dashboard's Settings page — picking the repo from the GitHub-connected list rather than pasting the URL again is what actually establishes the App-based connection. Auto-deploy now works normally: a `git push` to `main` triggers a build and deploy on its own, no manual step needed. If it ever stops working again (e.g. after recreating the service), the manual fallback is:
-```
-render deploys create srv-d99me367r5hc73bf8qf0 --confirm
-```
-
-**Known limitations, accepted rather than solved:**
-- In-memory job state means an in-progress job is lost if the free host restarts/spins down mid-job.
-- Spotify Client Credentials rate limits are shared app-wide across every user of the site (same `SPOTIFY_CLIENT_ID` used by `album_downloader.py`'s CLI path and, historically, hit hard by `sync_missing.py`'s library scans) — fine at friend-group album-lookup volumes, but a single shared quota.
-- Ephemeral disk means zips are transient by design (TTL cleanup), not persistent storage.
-- YouTube's bot-check on datacenter IPs (see the `extractor_args` note above) is mitigated, not eliminated — if it resurfaces, check yt-dlp's changelog/issues for the current workaround before assuming the app is broken.
 

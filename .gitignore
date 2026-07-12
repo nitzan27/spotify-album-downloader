@@ -5,5 +5,6 @@ __pycache__/
 *.pyc
 .spotify_user_cache
 sync_queue.json
-.sync_scan_state.json
+.spotify_scan_cache.json
+web/.web_scan_cache/
 .claude/settings.local.json
