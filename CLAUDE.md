@@ -90,11 +90,10 @@ Needs `SITE_USERNAME`/`SITE_PASSWORD` set (in `.env`) in addition to the Spotify
 
 **Deployment:** Render.com free "Web Service" tier, Docker-based (`Dockerfile` installs `ffmpeg` via apt, then `pip install -r requirements.txt`; `CMD` binds `0.0.0.0:$PORT` with `--workers 1`). Rejected alternatives: Fly.io no longer has a real free tier; Cloud Run only allocates CPU while a request is in flight by default, which conflicts with background job processing; a raw free VM (e.g. Oracle Always Free) is genuinely free but means self-managing an OS/Docker daemon, which is what hosting on Render avoids. Accepted trade-off: the free tier spins down after ~15 min idle (~30-60s cold start on the next request).
 
-The Render service here (`spotify-album-downloader`, id `srv-d99me367r5hc73bf8qf0`) was created via the Render CLI against a **public** GitHub repo URL rather than through Render's GitHub App integration — which means **auto-deploy-on-push is not wired up** (Render can clone the public repo for a build, but has no webhook telling it a new commit landed). After pushing changes, deploy manually:
+The Render service here (`spotify-album-downloader`, id `srv-d99me367r5hc73bf8qf0`) was originally created via the Render CLI against a **public** GitHub repo URL rather than through Render's GitHub App integration, so auto-deploy-on-push didn't work at first (Render could clone the public repo for a build, but had no webhook telling it a new commit landed). This was fixed by installing the Render GitHub App on the repo (`github.com/apps/render/installations/new`, with repository access scoped to just this repo) and reconnecting the service's **Source** from the dashboard's Settings page — picking the repo from the GitHub-connected list rather than pasting the URL again is what actually establishes the App-based connection. Auto-deploy now works normally: a `git push` to `main` triggers a build and deploy on its own, no manual step needed. If it ever stops working again (e.g. after recreating the service), the manual fallback is:
 ```
 render deploys create srv-d99me367r5hc73bf8qf0 --confirm
 ```
-(or reconnect the service via the Render dashboard's GitHub integration to get auto-deploy).
 
 **Known limitations, accepted rather than solved:**
 - In-memory job state means an in-progress job is lost if the free host restarts/spins down mid-job.
