@@ -17,9 +17,18 @@ interface Props {
   existingAlbumFolders: Set<string> | null
   downloadedAlbums: Set<string>
   downloadingAlbums: Set<string>
+  canDownload: boolean
+  onBlockedDownload: () => void
 }
 
-export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbums, downloadingAlbums }: Props) {
+export function ScanPanel({
+  onJobsCreated,
+  existingAlbumFolders,
+  downloadedAlbums,
+  downloadingAlbums,
+  canDownload,
+  onBlockedDownload,
+}: Props) {
   const [market, setMarket] = useState('IL')
   const [jobId, setJobId] = useState<string | null>(null)
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
@@ -126,6 +135,10 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
   const clearSelection = () => setSelected(new Set())
 
   const handleDownloadSelected = async () => {
+    if (!canDownload) {
+      onBlockedDownload()
+      return
+    }
     if (!results) return
     const selectedAlbums = results.filter((_: MissingAlbumResult, i: number) => selected.has(i))
     if (selectedAlbums.length === 0) return
@@ -151,8 +164,14 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
     }
   }
 
+  // Only stretch to match the sidebar's height (see styles.css) once there
+  // are results to fill that space with - an empty/pre-scan card staying
+  // small looks intentional, whereas stretching it before there's anything
+  // to show would just be dead space.
+  const hasResults = results !== null && results.length > 0
+
   return (
-    <div className="card">
+    <div className={`card${hasResults ? ' card-filled' : ''}`}>
       <h2>Scan for region-locked tracks</h2>
       <p className="muted">
         Finds albums in your saved library and playlists with tracks unavailable in your market that you don't have
@@ -302,7 +321,12 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
                   )
                 })}
               </div>
-              <button type="button" disabled={selected.size === 0 || queuing} onClick={handleDownloadSelected}>
+              <button
+                type="button"
+                className={!canDownload ? 'button-disabled-look' : undefined}
+                disabled={selected.size === 0 || queuing}
+                onClick={handleDownloadSelected}
+              >
                 {queuing ? 'Queuing...' : `Download selected (${selected.size})`}
               </button>
             </>

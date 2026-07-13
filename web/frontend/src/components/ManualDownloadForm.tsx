@@ -7,9 +7,11 @@ import type { TrackedJob } from './DownloadsPanel'
 interface Props {
   onJobCreated: (job: TrackedJob) => void
   existingAlbumFolders: Set<string> | null
+  canDownload: boolean
+  onBlockedDownload: () => void
 }
 
-export function ManualDownloadForm({ onJobCreated, existingAlbumFolders }: Props) {
+export function ManualDownloadForm({ onJobCreated, existingAlbumFolders, canDownload, onBlockedDownload }: Props) {
   const [artist, setArtist] = useState('')
   const [album, setAlbum] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -18,6 +20,10 @@ export function ManualDownloadForm({ onJobCreated, existingAlbumFolders }: Props
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
+    if (!canDownload) {
+      onBlockedDownload()
+      return
+    }
     setError(null)
     setSkippedMessage(null)
     const trimmedArtist = artist.trim()
@@ -66,7 +72,7 @@ export function ManualDownloadForm({ onJobCreated, existingAlbumFolders }: Props
           placeholder="e.g. Discovery"
           required
         />
-        <button type="submit" disabled={submitting}>
+        <button type="submit" className={!canDownload ? 'button-disabled-look' : undefined} disabled={submitting}>
           {submitting ? 'Starting...' : 'Download'}
         </button>
       </form>

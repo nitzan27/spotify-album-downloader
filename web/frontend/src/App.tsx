@@ -8,6 +8,7 @@ import { ScanPanel } from './components/ScanPanel'
 import { ManualDownloadForm } from './components/ManualDownloadForm'
 import { DownloadsPanel } from './components/DownloadsPanel'
 import type { TrackedJob } from './components/DownloadsPanel'
+import { Toast } from './components/Toast'
 import logoIcon from './assets/logo-icon.png'
 
 function App() {
@@ -71,8 +72,19 @@ function App() {
   // they keep working exactly as before (zip download, no folder needed).
   const canDownload = !isDirectoryPickerSupported() || downloadDirHandle !== null
 
+  // Download buttons stay clickable even while `!canDownload` (styled as
+  // greyed-out, not natively `disabled`) specifically so clicking one can
+  // trigger this popup - see ScanPanel/ManualDownloadForm's onBlockedDownload.
+  const [showFolderPopup, setShowFolderPopup] = useState(false)
+
   return (
     <div className="app">
+      {showFolderPopup && (
+        <Toast
+          message="Choose a download folder above to enable downloads."
+          onClose={() => setShowFolderPopup(false)}
+        />
+      )}
       <div className="brand">
         <img src={logoIcon} alt="" className="brand-icon" />
         <div className="brand-text">
@@ -81,36 +93,51 @@ function App() {
         </div>
       </div>
 
-      {me && <ConnectAccount me={me} onLoggedOut={() => setMe({ logged_in: false, display_name: null, avatar_url: null })} />}
+      <div className="layout-sidebar">
+        <div className="layout-account">
+          {me && <ConnectAccount me={me} onLoggedOut={() => setMe({ logged_in: false, display_name: null, avatar_url: null })} />}
+        </div>
 
-      <DownloadFolderPicker
-        onFolderChosen={(folders, _name, dirHandle) => {
-          setExistingAlbumFolders(folders)
-          setDownloadDirHandle(dirHandle)
-        }}
-      />
+        <div className="layout-folder">
+          <DownloadFolderPicker
+            onFolderChosen={(folders, _name, dirHandle) => {
+              setExistingAlbumFolders(folders)
+              setDownloadDirHandle(dirHandle)
+            }}
+          />
+        </div>
 
-      {!canDownload && (
-        <p className="muted">Choose a download folder above to start scanning or downloading.</p>
-      )}
+        <div className="layout-manual">
+          <ManualDownloadForm
+            onJobCreated={addJob}
+            existingAlbumFolders={existingAlbumFolders}
+            canDownload={canDownload}
+            onBlockedDownload={() => setShowFolderPopup(true)}
+          />
+        </div>
+      </div>
 
-      {canDownload && me?.logged_in && (
-        <ScanPanel
-          onJobsCreated={addJobs}
-          existingAlbumFolders={existingAlbumFolders}
-          downloadedAlbums={downloadedAlbums}
-          downloadingAlbums={downloadingAlbums}
+      <div className="layout-main">
+        {me?.logged_in && (
+          <ScanPanel
+            onJobsCreated={addJobs}
+            existingAlbumFolders={existingAlbumFolders}
+            downloadedAlbums={downloadedAlbums}
+            downloadingAlbums={downloadingAlbums}
+            canDownload={canDownload}
+            onBlockedDownload={() => setShowFolderPopup(true)}
+          />
+        )}
+      </div>
+
+      <div className="layout-downloads">
+        <DownloadsPanel
+          jobs={jobs}
+          downloadDirHandle={downloadDirHandle}
+          onJobDone={markAlbumDownloaded}
+          onJobFailed={markAlbumDownloadFailed}
         />
-      )}
-
-      {canDownload && <ManualDownloadForm onJobCreated={addJob} existingAlbumFolders={existingAlbumFolders} />}
-
-      <DownloadsPanel
-        jobs={jobs}
-        downloadDirHandle={downloadDirHandle}
-        onJobDone={markAlbumDownloaded}
-        onJobFailed={markAlbumDownloadFailed}
-      />
+      </div>
     </div>
   )
 }

@@ -71,6 +71,105 @@ body {
   gap: 1.25rem;
 }
 
+/* A wrapper whose conditional child didn't render (not logged in yet, no
+   folder picker on Firefox/Safari, no download jobs yet) should collapse
+   instead of leaving a gap - matters both for the mobile flex stack's `gap`
+   and for the desktop grid areas below. */
+.app > div:empty {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  /* The page is free to scroll normally at this width - only the two
+     genuinely unbounded lists (.result-list, .job-list, both defined below)
+     scroll internally within their own card. Everything else just sizes to
+     its natural content. */
+  .app {
+    max-width: 68rem;
+    display: grid;
+    grid-template-columns: minmax(19rem, 23rem) 1fr;
+    grid-template-areas:
+      "brand     brand"
+      "sidebar   main"
+      "downloads downloads";
+    column-gap: 2rem;
+    row-gap: 1.25rem;
+  }
+
+  .app > .brand {
+    grid-area: brand;
+    margin-bottom: 0;
+  }
+
+  .app > .brand .brand-icon {
+    height: 2.4rem;
+  }
+
+  .app > .brand h1 {
+    font-size: 1.7rem;
+  }
+
+  /* Sidebar and Scan are now simple siblings in one grid row (not a 3-row
+     span) - a plain, reliable case for grid's default `align-items: stretch`
+     to make both match the taller one's height. The previous 3-row-span
+     version looked like it worked but silently didn't: a percentage height
+     inside an item spanning `auto`-sized rows doesn't reliably resolve, and
+     combined with an unbounded flex-fill list it once rendered all 300+
+     scanned albums with no cap at all. */
+  .layout-sidebar {
+    grid-area: sidebar;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .layout-main {
+    grid-area: main;
+  }
+
+  /* Stretch is already applied to the grid item itself; the card inside
+     needs its own `height: 100%` to actually fill it (a block child doesn't
+     inherit a taller parent's height on its own) so its background reaches
+     the sidebar's bottom edge. Scoped to `.card-filled` (added once there
+     are results, see ScanPanel) so an empty/pre-scan card stays small
+     instead of stretching into dead space. Also flex-column so the download
+     button (below) can be pinned to the bottom edge - this only repositions
+     the button, `.result-list`'s own `max-height`/`overflow-y` (unchanged)
+     still does all the actual size-capping/scrolling. */
+  .layout-main .card.card-filled {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .layout-downloads {
+    grid-area: downloads;
+  }
+
+  /* Consistent width + centered, instead of each button being a
+     content-width pill sitting flush left - "Choose download folder" and
+     "Download selected"/"Scan my library" otherwise look mismatched next to
+     each other because their label lengths differ so much. */
+  .layout-folder .card > button,
+  .layout-main .card > button,
+  .layout-main .card form button,
+  .layout-manual .card form button {
+    display: block;
+    min-width: 12rem;
+    margin: 0.5rem auto 0;
+  }
+
+  /* `margin-top: auto` on a flex item consumes all leftover vertical space
+     above it, pushing the button flush to the card's bottom edge - the same
+     distance from the bottom as the Manual form's button sits from its own
+     card (both share the same `.card` padding-bottom), instead of trailing
+     right after however tall the (still capped) result list is. */
+  .layout-main .card.card-filled > button {
+    margin-top: auto;
+    margin-bottom: 0;
+  }
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -188,6 +287,20 @@ button:disabled {
   cursor: default;
   opacity: 0.5;
   transform: none;
+}
+
+/* Looks disabled (same dimming as `button:disabled`) but stays a real,
+   clickable button - used instead of the native `disabled` attribute when
+   the only thing blocking the action is "no download folder chosen yet", so
+   clicking it can still trigger the folder-required popup (see Toast). */
+.button-disabled-look {
+  opacity: 0.5;
+}
+
+.button-disabled-look:hover {
+  background: var(--green);
+  transform: none;
+  cursor: not-allowed;
 }
 
 button.secondary {
@@ -312,7 +425,7 @@ a.download:hover {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  max-height: 20rem;
+  max-height: 25rem;
   overflow-y: auto;
   margin: 1rem 0;
 }
@@ -410,6 +523,8 @@ a.download:hover {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  max-height: 20rem;
+  overflow-y: auto;
 }
 
 .job-row {
@@ -453,4 +568,90 @@ a.download:hover {
 .job-row button.secondary {
   padding: 0.35rem 0.85rem;
   font-size: 0.75rem;
+}
+
+/* Fixed, dismissable notification - Spotify's own toasts (e.g. "Added to
+   your library") are a dark pill fixed near the bottom of the screen with a
+   close button, not inline page text. `position: fixed` takes it out of
+   `.app`'s grid/flex flow entirely regardless of where it sits in the DOM. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  max-width: calc(100vw - 3rem);
+  background: var(--elevated);
+  color: var(--text);
+  padding: 0.9rem 1rem 0.9rem 1.25rem;
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  animation: toast-in 0.25s ease;
+}
+
+/* Auto-dismisses after a few seconds (see Toast.tsx's AUTO_DISMISS_MS) -
+   this class is added right before unmounting so it fades out instead of
+   just vanishing, whether it's the timer or the close button that triggers it. */
+.toast.toast-closing {
+  animation: toast-out 0.3s ease forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, 0.5rem);
+  }
+}
+
+.toast-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 50%;
+}
+
+.toast-close svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.toast-close:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  transform: none;
 }
