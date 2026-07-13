@@ -57,6 +57,13 @@ class Job:
     session_id: Optional[str] = None
     market: Optional[str] = None
     results: Optional[list[dict]] = None  # final sync-queue-shaped output when done
+    # Cumulative Spotify API calls across every attempt for this logical scan
+    # (each auto-retry re-runs process_scan_job under the same job.id, so this
+    # lives on the Job - a fresh local counter per attempt can't add up to a
+    # true end-to-end total on its own). Carried forward into a new Job by
+    # resume_scan_job() when a friend clicks "Resume scan" manually, so the
+    # total still covers the whole scan across that too.
+    api_call_count: int = 0
 
     # shared by both job types: automatic rate_limited requeues so far
     # (capped at MAX_AUTO_RETRIES) and the delay to honor before the next one
@@ -88,8 +95,14 @@ def create_download_job(artist: str, album: str) -> Job:
     return job
 
 
-def create_scan_job(session_id: str, market: str) -> Job:
-    job = Job(id=str(uuid.uuid4()), job_type="scan", session_id=session_id, market=market)
+def create_scan_job(session_id: str, market: str, initial_api_call_count: int = 0) -> Job:
+    job = Job(
+        id=str(uuid.uuid4()),
+        job_type="scan",
+        session_id=session_id,
+        market=market,
+        api_call_count=initial_api_call_count,
+    )
     JOBS[job.id] = job
     _scan_queue.put_nowait(job.id)
     return job

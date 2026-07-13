@@ -210,11 +210,26 @@ def process_scan_job(job: Job) -> None:
         # Backend-only diagnostic - never sent to the frontend. Prints on
         # every exit path (success, rate_limited, or an uncaught crash), so
         # even a failed scan tells you how much Spotify API budget it burned.
-        total_calls = call_counter["count"]
+        #
+        # call_counter is a fresh local counter for just this one invocation
+        # of process_scan_job - an auto-retry re-enters this function under
+        # the same job.id, so a rate-limited scan that takes several attempts
+        # would otherwise only ever show each attempt's own (smaller) count,
+        # never a true end-to-end total. job.api_call_count accumulates across
+        # every attempt (and across a manual "Resume scan" too - see
+        # resume_scan_job) so the line printed once the job actually finishes
+        # (status isn't "rate_limited" here means it's about to become "done"
+        # or "error" - not going to retry again) is the real total for the
+        # whole scan, not just its last attempt.
+        this_attempt_calls = call_counter["count"]
+        job.api_call_count += this_attempt_calls
+        is_final = job.status != "rate_limited"
+        total_label = "FINAL total" if is_final else "running total, will retry"
         print(
             f"[scan_adapter] job {job.id} (session={job.session_id}, market={job.market}): "
-            f"{total_calls} Spotify API call(s) total "
-            f"(gather: {gather_call_count}, lock-check: {total_calls - gather_call_count})",
+            f"{this_attempt_calls} Spotify API call(s) this attempt "
+            f"(gather: {gather_call_count}, lock-check: {this_attempt_calls - gather_call_count}) - "
+            f"{total_label}: {job.api_call_count} call(s)",
             flush=True,
         )
 
@@ -224,6 +239,9 @@ def resume_scan_job(old_job: Job) -> Job:
 
     No checkpoint needs to be handed over - the per-user cache file on disk
     already has everything saved from the previous attempt, so the new job
-    picks up where the old one left off automatically.
+    picks up where the old one left off automatically. api_call_count is
+    carried forward so the eventual "FINAL total" log line still covers every
+    Spotify API call this logical scan made, including before the manual
+    "Resume scan" click.
     """
-    return create_scan_job(old_job.session_id, old_job.market)
+    return create_scan_job(old_job.session_id, old_job.market, initial_api_call_count=old_job.api_call_count)
