@@ -287,7 +287,7 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
                         </span>
                       )}
                       <span>
-                        <div>
+                        <div className="result-title">
                           {result.artist} - {result.album}
                           {downloading && <span className="muted"> (downloading...)</span>}
                           {!downloading && already && (

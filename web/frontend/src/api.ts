@@ -35,9 +35,11 @@ export interface JobStatusResponse {
   progress: string;
   error: string | null;
   results?: MissingAlbumResult[]; // Populated only for completed scan jobs
-  // Scan jobs only: true while the backend may still auto-requeue this same
-  // job id (see jobs.MAX_SCAN_AUTO_RETRIES) - if false, a rate_limited job
-  // needs an explicit "Resume scan" click to make further progress.
+  // True while the backend may still auto-requeue this same job id (see
+  // jobs.MAX_AUTO_RETRIES) - for a scan, false means a rate_limited job
+  // needs an explicit "Resume scan" click; a download has no such button and
+  // self-resolves to "error" once retries are exhausted, so this is
+  // informational only there (the frontend just keeps polling regardless).
   will_auto_retry?: boolean;
 }
 

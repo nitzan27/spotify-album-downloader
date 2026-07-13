@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { getDownloadUrl, getJobStatus } from '../api'
 import type { JobStatusResponse } from '../api'
 import { saveZipToFolder } from '../downloadFolder'
-import { JobStatusView } from './JobStatusView'
 
 export interface TrackedJob {
   id: string
@@ -39,7 +38,12 @@ function TrackedJobRow({
         const result = await getJobStatus(job.id)
         if (cancelled) return
         setStatus(result)
-        if (result.status === 'queued' || result.status === 'running') {
+        // A rate_limited download auto-requeues itself server-side (see
+        // web/jobs.py's MAX_AUTO_RETRIES) and, once exhausted, self-resolves
+        // to "error" rather than needing a manual click like a rate_limited
+        // scan does - so it's treated the same as queued/running here: just
+        // keep polling and showing whatever progress text the backend sends.
+        if (result.status === 'queued' || result.status === 'running' || result.status === 'rate_limited') {
           timer = window.setTimeout(poll, 2000)
         } else if (result.status === 'done') {
           onJobDone(job.artist, job.album)
@@ -88,42 +92,64 @@ function TrackedJobRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.status, downloadDirHandle])
 
+  const isInFlight =
+    !status || status.status === 'queued' || status.status === 'running' || status.status === 'rate_limited'
+  // Treat the brief 'idle' render (before the auto-save effect above has had
+  // a chance to fire) the same as 'saving' so the row never flashes empty.
+  const isSaving = saveState === 'saving' || saveState === 'idle'
+
   return (
-    <div>
-      <div className="muted">{job.label}</div>
-      {status ? (
-        <JobStatusView status={status.status} progress={status.progress} error={status.error}>
-          {status.status === 'done' && !downloadDirHandle && (
+    <div className="job-row">
+      <span className="job-label">{job.label}</span>
+      {isInFlight && (
+        <span className="job-status-text muted">
+          {status?.progress || 'Queuing...'}
+          <span className="spinner" />
+        </span>
+      )}
+      {status?.status === 'error' && (
+        <span className="job-status-error" title={status.error ?? undefined}>
+          Error: {status.error}
+        </span>
+      )}
+      {status?.status === 'done' && !downloadDirHandle && (
+        <a className="download" href={getDownloadUrl(job.id)}>
+          Download zip
+        </a>
+      )}
+      {status?.status === 'done' && downloadDirHandle && (
+        <>
+          {isSaving && (
+            <span className="job-status-text muted">
+              Saving...
+              <span className="spinner" />
+            </span>
+          )}
+          {saveState === 'saved' && (
+            <span className="result-check" role="img" aria-label="Saved to folder">
+              <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="8" cy="8" r="8" fill="#1DB954" />
+                <path
+                  d="M4.5 8.3L6.8 10.6L11.5 5.6"
+                  stroke="#000000"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+          )}
+          {saveState === 'error' && (
             <>
-              {' '}
-              <a className="download" href={getDownloadUrl(job.id)}>
-                Download zip
-              </a>
+              <span className="job-status-error" title={saveError ?? undefined}>
+                {saveError}
+              </span>
+              <button type="button" className="secondary" onClick={saveToFolder}>
+                Retry
+              </button>
             </>
           )}
-          {status.status === 'done' && downloadDirHandle && (
-            <>
-              {' '}
-              {saveState === 'saving' && <span className="muted">Saving to folder...</span>}
-              {saveState === 'saved' && <span className="muted">Saved to folder.</span>}
-              {saveState === 'error' && (
-                <>
-                  <span className="status error" style={{ display: 'inline' }}>
-                    {saveError} -{' '}
-                  </span>
-                  <button type="button" className="secondary" onClick={saveToFolder}>
-                    Retry save to folder
-                  </button>
-                </>
-              )}
-            </>
-          )}
-        </JobStatusView>
-      ) : (
-        <div className="status progress">
-          <div className="spinner" />
-          <div className="status-text">Queuing...</div>
-        </div>
+        </>
       )}
     </div>
   )

@@ -223,6 +223,12 @@ def job_status(request: Request, job_id: str):
     job = jobs.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
+    # Lets the frontend know whether a rate_limited job may still auto-requeue
+    # itself (keep polling) - see jobs.MAX_AUTO_RETRIES. For a scan, "false"
+    # additionally means a manual "Resume scan" click is needed; a download
+    # has no such button - once exhausted it self-resolves to "error" instead
+    # (see jobs._schedule_auto_retry), so this is informational only there.
+    will_auto_retry = job.status == "rate_limited" and job.retry_count < jobs.MAX_AUTO_RETRIES
     if job.job_type == "scan":
         # Scan results are someone's private library contents - unlike anonymous
         # download jobs, only the session that started this scan may read it.
@@ -234,12 +240,9 @@ def job_status(request: Request, job_id: str):
             "progress": job.progress,
             "error": job.error,
             "results": job.results,
-            # Lets the frontend know whether to keep polling a rate_limited job
-            # (it may auto-requeue itself) or to treat it as needing a manual
-            # "Resume scan" click - see jobs.MAX_SCAN_AUTO_RETRIES.
-            "will_auto_retry": job.status == "rate_limited" and job.retry_count < jobs.MAX_SCAN_AUTO_RETRIES,
+            "will_auto_retry": will_auto_retry,
         }
-    return {"status": job.status, "progress": job.progress, "error": job.error}
+    return {"status": job.status, "progress": job.progress, "error": job.error, "will_auto_retry": will_auto_retry}
 
 
 @router.get("/download/{job_id}")

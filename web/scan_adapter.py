@@ -25,7 +25,7 @@ same sync_missing.py helpers the CLI uses (each playlist, then each
 lock-check batch, saved as it's processed), it doubles as both the
 across-scan cache AND the resume mechanism for an interrupted scan - there's
 no separate in-memory checkpoint to build or pass around. A rate_limited job
-auto-requeues itself (web/jobs.py's MAX_SCAN_AUTO_RETRIES) or can be resumed
+auto-requeues itself (web/jobs.py's MAX_AUTO_RETRIES) or can be resumed
 manually via the "Resume scan" button; either way it's just re-running
 process_scan_job for the same session, and both caches already have
 everything saved from the previous attempt.

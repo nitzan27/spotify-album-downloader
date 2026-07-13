@@ -10,7 +10,7 @@ import os
 import shutil
 import tempfile
 
-from album_downloader import download_album
+from album_downloader import download_album, SpotifyRateLimitError
 from web.jobs import Job
 
 TEMP_ROOT = os.path.join(tempfile.gettempdir(), "spotify_album_downloader_jobs")
@@ -38,16 +38,30 @@ def _make_progress_callback(job: Job):
 
 
 def process_job(job: Job) -> None:
-    """Download the album for `job` into a per-job temp dir and zip it. Raises on failure."""
+    """Download the album for `job` into a per-job temp dir and zip it. Raises on failure.
+
+    A Spotify rate limit (shared app-wide across every friend using this
+    site - see web/CLAUDE.md) is the one failure mode handled specially: it
+    sets job.status = "rate_limited" and returns instead of raising, which
+    lets web/jobs.py's worker loop auto-requeue it the same way a rate_limited
+    scan job already does, rather than failing the whole download permanently
+    on what's usually a transient, minutes-long condition.
+    """
     job_dir = _job_dir(job)
     os.makedirs(job_dir, exist_ok=True)
 
-    dest_folder = download_album(
-        job.artist,
-        job.album,
-        dest_root=job_dir,
-        progress_callback=_make_progress_callback(job),
-    )
+    try:
+        dest_folder = download_album(
+            job.artist,
+            job.album,
+            dest_root=job_dir,
+            progress_callback=_make_progress_callback(job),
+        )
+    except SpotifyRateLimitError as exc:
+        job.retry_after_seconds = exc.retry_after_seconds
+        job.progress = str(exc)
+        job.status = "rate_limited"
+        return
 
     zip_base = dest_folder  # shutil.make_archive appends ".zip" itself
     zip_path = shutil.make_archive(zip_base, "zip", root_dir=dest_folder)

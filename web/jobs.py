@@ -26,12 +26,15 @@ JOB_TTL_SECONDS = 60 * 60  # expire jobs (and their files) after 1 hour
 DOWNLOAD_WORKER_COUNT = 2  # concurrency cap - each download job spawns yt-dlp/ffmpeg subprocesses
 SCAN_WORKER_COUNT = 1  # scans are rare/one-shot per user; keep concurrent Spotify calls low
 
-# A rate_limited scan auto-requeues itself (same job id, so the frontend's
-# poll of /status/{id} just sees it go rate_limited -> queued -> running
-# again) up to this many times before requiring an explicit "Resume scan"
-# click. Delay honors Spotify's Retry-After when given, capped so one big
-# Retry-After can't stall the single scan worker for an unreasonable time.
-MAX_SCAN_AUTO_RETRIES = 3
+# A rate_limited job (scan or download) auto-requeues itself (same job id, so
+# the frontend's poll of /status/{id} just sees it go rate_limited -> queued
+# -> running again) up to this many times. Delay honors Spotify's
+# Retry-After when given, capped so one big Retry-After can't stall a worker
+# for an unreasonable time. Once exhausted: a scan sits waiting for an
+# explicit "Resume scan" click (it has a durable cache, so nothing is lost by
+# waiting); a download has no such resume endpoint, so it fails terminally
+# instead - see _schedule_auto_retry.
+MAX_AUTO_RETRIES = 3
 DEFAULT_AUTO_RETRY_SECONDS = 30  # used when Retry-After wasn't parseable (a 5xx, not a 429)
 MAX_AUTO_RETRY_DELAY_SECONDS = 300
 
@@ -54,8 +57,11 @@ class Job:
     session_id: Optional[str] = None
     market: Optional[str] = None
     results: Optional[list[dict]] = None  # final sync-queue-shaped output when done
-    retry_count: int = 0  # automatic rate_limited requeues so far, capped at MAX_SCAN_AUTO_RETRIES
-    retry_after_seconds: Optional[float] = None  # set by process_scan_job when rate_limited
+
+    # shared by both job types: automatic rate_limited requeues so far
+    # (capped at MAX_AUTO_RETRIES) and the delay to honor before the next one
+    retry_count: int = 0
+    retry_after_seconds: Optional[float] = None
 
 
 JOBS: dict[str, Job] = {}
@@ -127,13 +133,20 @@ async def _run_worker_loop(queue: "asyncio.Queue[str]", get_worker_fn: Callable[
 
 
 def _schedule_auto_retry(job: Job, queue: "asyncio.Queue[str]") -> None:
-    """Requeue a rate_limited scan job (same id) after a backoff, up to MAX_SCAN_AUTO_RETRIES.
+    """Requeue a rate_limited job (same id) after a backoff, up to MAX_AUTO_RETRIES.
 
     Runs as a background asyncio task (not a blocking sleep in the worker
-    loop) so one job's backoff can't stall every other friend's scan behind
-    it in the single-worker scan queue.
+    loop) so one job's backoff can't stall every other job behind it in its
+    (single- or multi-worker) queue.
     """
-    if job.job_type != "scan" or job.retry_count >= MAX_SCAN_AUTO_RETRIES:
+    if job.retry_count >= MAX_AUTO_RETRIES:
+        if job.job_type == "download":
+            # Unlike a scan (which keeps its durable per-user cache and just
+            # waits for a manual "Resume scan" click), a download job has no
+            # resume endpoint - leaving it stuck at "rate_limited" forever
+            # would show nothing useful, so fail it terminally instead.
+            job.status = "error"
+            job.error = f"Spotify rate limit persisted after {MAX_AUTO_RETRIES} automatic retries - try again in a few minutes."
         return
     delay = min(job.retry_after_seconds or DEFAULT_AUTO_RETRY_SECONDS, MAX_AUTO_RETRY_DELAY_SECONDS)
     job.retry_count += 1
@@ -145,7 +158,7 @@ async def _requeue_after(job: Job, queue: "asyncio.Queue[str]", delay: float) ->
     if _is_expired(job) or job.id not in JOBS:
         return
     job.status = "queued"
-    job.progress = f"{job.progress} Retrying automatically (attempt {job.retry_count}/{MAX_SCAN_AUTO_RETRIES})..."
+    job.progress = f"{job.progress} Retrying automatically (attempt {job.retry_count}/{MAX_AUTO_RETRIES})..."
     queue.put_nowait(job.id)
 
 

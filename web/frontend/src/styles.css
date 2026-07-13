@@ -296,6 +296,10 @@ a.download:hover {
   }
 }
 
+.result-item .result-title {
+  font-size: 0.9rem;
+}
+
 .result-item .titles {
   color: var(--muted);
   font-size: 0.8rem;
@@ -311,4 +315,47 @@ a.download:hover {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.job-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: 0.5rem;
+  row-gap: 0.3rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--elevated);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.job-row .job-label {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.job-status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.job-row .spinner {
+  margin-top: 0;
+}
+
+.job-status-error {
+  color: var(--error);
+  font-size: 0.8rem;
+  max-width: 11rem;
+  overflow-wrap: break-word;
+}
+
+.job-row button.secondary {
+  padding: 0.35rem 0.85rem;
+  font-size: 0.75rem;
 }

@@ -26,6 +26,7 @@ import json
 import os
 import re
 import sys
+from typing import Optional
 
 import requests
 import spotipy
@@ -56,14 +57,37 @@ class SpotifyLookupError(Exception):
     """
 
 
-def _describe_spotify_exception(exc: SpotifyException) -> str:
-    """Turn a raw SpotifyException into a short, user-facing message."""
+class SpotifyRateLimitError(SpotifyLookupError):
+    """A SpotifyLookupError specifically caused by a 429.
+
+    Carries the Retry-After delay (seconds, if Spotify sent one) as a typed
+    field so a caller that wants to auto-retry (e.g. the web app's job
+    workers - see web/downloader_adapter.py) doesn't have to string-parse the
+    human-readable message to find it. Still a plain SpotifyLookupError as
+    far as the CLI's __main__ is concerned, so its existing broad
+    `except SpotifyLookupError` catch needs no change.
+    """
+
+    def __init__(self, message: str, retry_after_seconds: Optional[float] = None):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+def _spotify_lookup_error(exc: SpotifyException) -> SpotifyLookupError:
+    """Turn a raw SpotifyException into a SpotifyLookupError, or a
+    SpotifyRateLimitError (with the Retry-After delay, if any) for a 429."""
     if exc.http_status == 429:
         retry_after = (exc.headers or {}).get("Retry-After")
         if retry_after:
-            return f"Spotify rate limit reached; try again in {retry_after}s."
-        return "Spotify rate limit reached; try again later."
-    return f"Spotify API error ({exc.http_status}): {exc.msg}"
+            try:
+                retry_after_seconds = float(retry_after)
+            except ValueError:
+                retry_after_seconds = None
+            return SpotifyRateLimitError(
+                f"Spotify rate limit reached; try again in {retry_after}s.", retry_after_seconds
+            )
+        return SpotifyRateLimitError("Spotify rate limit reached; try again later.")
+    return SpotifyLookupError(f"Spotify API error ({exc.http_status}): {exc.msg}")
 
 
 def _default_progress_callback(event: str, **data) -> None:
@@ -138,7 +162,7 @@ def fetch_album_metadata(sp: spotipy.Spotify, artist_name: str, album_name: str)
     try:
         results = sp.search(q=query, type="album", limit=1, market="US")
     except SpotifyException as exc:
-        raise SpotifyLookupError(_describe_spotify_exception(exc)) from exc
+        raise _spotify_lookup_error(exc) from exc
     items = results.get("albums", {}).get("items", [])
 
     if not items:
@@ -158,7 +182,7 @@ def fetch_album_metadata(sp: spotipy.Spotify, artist_name: str, album_name: str)
             tracks_page = sp.next(tracks_page)
             raw_tracks.extend(tracks_page["items"])
     except SpotifyException as exc:
-        raise SpotifyLookupError(_describe_spotify_exception(exc)) from exc
+        raise _spotify_lookup_error(exc) from exc
 
     total_tracks = len(raw_tracks)
     tracklist = [
