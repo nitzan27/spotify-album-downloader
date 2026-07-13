@@ -8,6 +8,7 @@ import {
 } from '../api'
 import type { JobStatusResponse, MissingAlbumResult } from '../api'
 import { albumFolderName } from '../downloadFolder'
+import { COUNTRY_CODES } from '../countryCodes'
 import { JobStatusView } from './JobStatusView'
 import type { TrackedJob } from './DownloadsPanel'
 
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbums }: Props) {
-  const [market, setMarket] = useState('')
+  const [market, setMarket] = useState('IL')
   const [jobId, setJobId] = useState<string | null>(null)
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -154,15 +155,14 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
 
       {!jobId && (
         <form onSubmit={handleStart}>
-          <label htmlFor="market">Market (2-letter country code)</label>
-          <input
-            id="market"
-            value={market}
-            onChange={(event) => setMarket(event.target.value)}
-            placeholder="e.g. US, IL, GB"
-            maxLength={2}
-            required
-          />
+          <label htmlFor="market">Market</label>
+          <select id="market" value={market} onChange={(event) => setMarket(event.target.value)} required>
+            {COUNTRY_CODES.map(({ code, name }) => (
+              <option key={code} value={code}>
+                {code} - {name}
+              </option>
+            ))}
+          </select>
           <button type="submit">Scan my library</button>
         </form>
       )}

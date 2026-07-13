@@ -80,7 +80,8 @@ label {
   margin-bottom: 0.4rem;
 }
 
-input {
+input,
+select {
   background: var(--elevated);
   border: 1px solid transparent;
   border-radius: 6px;
@@ -96,8 +97,13 @@ input::placeholder {
   color: var(--muted);
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: var(--green);
+}
+
+select {
+  cursor: pointer;
 }
 
 form {
