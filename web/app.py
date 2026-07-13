@@ -146,7 +146,7 @@ def logout(request: Request):
 def me(request: Request):
     session = _get_session(request)
     if session is None or not session.token_info:
-        return {"logged_in": False, "display_name": None}
+        return {"logged_in": False, "display_name": None, "avatar_url": None}
 
     if session.display_name is None:
         sp = get_authenticated_client(session)
@@ -154,10 +154,12 @@ def me(request: Request):
             profile = sp.current_user()
             session.display_name = profile.get("display_name") or profile.get("id")
             session.spotify_user_id = profile.get("id")
+            images = profile.get("images") or []
+            session.avatar_url = images[0]["url"] if images else None
         except Exception:
             pass  # token may be invalid/revoked; still report logged_in based on stored token_info
 
-    return {"logged_in": True, "display_name": session.display_name}
+    return {"logged_in": True, "display_name": session.display_name, "avatar_url": session.avatar_url}
 
 
 class ScanRequest(BaseModel):

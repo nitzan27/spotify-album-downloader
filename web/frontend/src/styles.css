@@ -160,6 +160,32 @@ button.secondary:hover:not(:disabled) {
   font-size: 0.85rem;
 }
 
+.account-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--elevated);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
 .status {
   border-radius: 8px;
   font-size: 0.85rem;

@@ -24,6 +24,7 @@ class Session:
     token_info: Optional[dict] = None
     oauth_state: Optional[str] = None
     display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
     spotify_user_id: Optional[str] = None
     created_at: float = field(default_factory=time.time)
 

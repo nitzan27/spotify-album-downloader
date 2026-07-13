@@ -30,7 +30,7 @@ function App() {
   useEffect(() => {
     getMe()
       .then(setMe)
-      .catch(() => setMe({ logged_in: false, display_name: null }))
+      .catch(() => setMe({ logged_in: false, display_name: null, avatar_url: null }))
   }, [])
 
   const addJob = (job: TrackedJob) => {
@@ -88,7 +88,7 @@ function App() {
         <h1>Album Downloader</h1>
       </div>
 
-      {me && <ConnectAccount me={me} onLoggedOut={() => setMe({ logged_in: false, display_name: null })} />}
+      {me && <ConnectAccount me={me} onLoggedOut={() => setMe({ logged_in: false, display_name: null, avatar_url: null })} />}
 
       <DownloadFolderPicker
         onFolderChosen={(folders, _name, dirHandle) => {

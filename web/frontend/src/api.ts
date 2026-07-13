@@ -1,6 +1,7 @@
 export interface MeResponse {
   logged_in: boolean;
   display_name: string | null;
+  avatar_url: string | null;
 }
 
 export interface ScanRequest {
