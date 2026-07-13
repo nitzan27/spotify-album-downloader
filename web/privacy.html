@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy - Fuck Clairo</title>
+    <style>
+      :root {
+        --bg: #121212;
+        --card: #181818;
+        --green: #1db954;
+        --text: #ffffff;
+        --muted: #b3b3b3;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        line-height: 1.6;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 3rem 1.5rem 5rem;
+      }
+      h1 {
+        font-size: 1.6rem;
+        margin: 0 0 0.25rem;
+      }
+      .updated {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin: 0 0 2.5rem;
+      }
+      h2 {
+        font-size: 1.05rem;
+        margin: 2rem 0 0.75rem;
+        color: var(--green);
+      }
+      p,
+      li {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+      ul {
+        margin: 0.5rem 0;
+        padding-left: 1.25rem;
+      }
+      code {
+        background: var(--card);
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.85em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Privacy Policy</h1>
+      <p class="updated">For the "Fuck Clairo" album downloader web app.</p>
+
+      <p>
+        This is a small, invite-only tool built for a private group of friends - it is not a public service, and
+        access is limited to people the site owner has shared the URL with directly.
+      </p>
+
+      <h2>What data we access</h2>
+      <p>If you choose to log in with your Spotify account, the app requests read-only access to:</p>
+      <ul>
+        <li>Your saved albums and liked songs (<code>user-library-read</code>)</li>
+        <li>Your playlists, including private and collaborative ones (<code>playlist-read-private</code>, <code>playlist-read-collaborative</code>)</li>
+        <li>Your basic profile info (display name and profile picture), fetched once at login</li>
+      </ul>
+      <p>
+        We never request write access, and nothing is ever added, removed, or changed in your Spotify account or
+        library.
+      </p>
+
+      <h2>Why</h2>
+      <p>
+        This data is used for exactly one feature: scanning your library and playlists to find tracks that are
+        unavailable for streaming in a market you choose, so you can see what's region-locked and download it
+        separately. The results are shown only to you.
+      </p>
+
+      <h2>How it's stored</h2>
+      <p>
+        Your login session is kept server-side and expires automatically after a few hours. To make repeat scans
+        faster, a cache of your library contents (album/track IDs, not audio or personal messages) is stored on the
+        server, kept separate per person, and never shown to or shared with any other user of the site.
+      </p>
+
+      <h2>Third parties</h2>
+      <p>
+        Your Spotify data is never sold, shared, or sent to any third party. The app also looks up track metadata
+        from MusicBrainz (a free, public music database) as a fallback when an album isn't on Spotify - no personal
+        or account data is sent there, only artist/album names.
+      </p>
+
+      <h2>Deleting your data</h2>
+      <p>
+        Logging out ends your session immediately. To have your cached library data removed from the server
+        entirely, contact the site owner directly.
+      </p>
+    </main>
+  </body>
+</html>

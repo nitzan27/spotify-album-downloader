@@ -103,6 +103,13 @@ def favicon():
     return FileResponse(os.path.join(FRONTEND_DIST, "favicon.png"))
 
 
+@router.get("/privacy")
+def privacy():
+    # A static page, not part of the React build - exists mainly to have a
+    # URL ready for Spotify's Extension Request form (see web/CLAUDE.md).
+    return FileResponse(os.path.join(os.path.dirname(__file__), "privacy.html"))
+
+
 @router.get("/login")
 def login(request: Request):
     session = _get_session(request) or sessions.create_session()
