@@ -37,7 +37,7 @@ export function DownloadFolderPicker({ onFolderChosen }: Props) {
     <div className="card">
       <h2>Download folder</h2>
       <p className="muted">
-        Optional: point this at your music folder so scans and downloads can skip albums you already have, and
+        Choose your music folder before scanning or downloading - it's used to skip albums you already have, and
         completed downloads are saved straight there instead of as a zip.
       </p>
       <button type="button" className="secondary" onClick={handlePick}>

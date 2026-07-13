@@ -27,14 +27,31 @@ export function isDirectoryPickerSupported(): boolean {
   return typeof window !== "undefined" && "showDirectoryPicker" in window;
 }
 
+const WINDOWS_RESERVED_NAMES = new Set([
+  "CON", "PRN", "AUX", "NUL",
+  "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+  "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+]);
+
 // Mirrors album_downloader.py's sanitize_filename() exactly, so a name
 // computed here matches the folder name the downloader actually writes.
 export function sanitizeFilename(name: string): string {
-  return name
+  let sanitized = name
     .replace(/\\/g, "-")
     .replace(/\//g, "-")
     .replace(/[:*?"<>|]/g, "")
-    .trim();
+    .trim()
+    // Windows silently drops a trailing dot/space in a path segment, but the
+    // File System Access API enforces the same rule explicitly and throws
+    // ("Name is not allowed") instead - strip it here so getDirectoryHandle()
+    // never sees it.
+    .replace(/[. ]+$/, "");
+
+  if (WINDOWS_RESERVED_NAMES.has(sanitized.split(".")[0].toUpperCase())) {
+    sanitized += "_";
+  }
+
+  return sanitized;
 }
 
 export function albumFolderName(artist: string, album: string): string {

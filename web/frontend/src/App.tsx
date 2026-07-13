@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getMe } from './api'
 import type { MeResponse } from './api'
-import { albumFolderName } from './downloadFolder'
+import { albumFolderName, isDirectoryPickerSupported } from './downloadFolder'
 import { ConnectAccount } from './components/ConnectAccount'
 import { DownloadFolderPicker } from './components/DownloadFolderPicker'
 import { ScanPanel } from './components/ScanPanel'
@@ -63,6 +63,13 @@ function App() {
     })
   }
 
+  // On browsers that support it, a download folder must be chosen before
+  // scanning/downloading is unlocked - there's no more "download a zip
+  // instead" fallback there. Browsers without the API (Firefox/Safari) never
+  // gain a dirHandle at all, so gating on it would lock them out entirely;
+  // they keep working exactly as before (zip download, no folder needed).
+  const canDownload = !isDirectoryPickerSupported() || downloadDirHandle !== null
+
   return (
     <div className="app">
       <div className="brand">
@@ -90,7 +97,11 @@ function App() {
         }}
       />
 
-      {me?.logged_in && (
+      {!canDownload && (
+        <p className="muted">Choose a download folder above to start scanning or downloading.</p>
+      )}
+
+      {canDownload && me?.logged_in && (
         <ScanPanel
           onJobsCreated={addJobs}
           existingAlbumFolders={existingAlbumFolders}
@@ -99,7 +110,7 @@ function App() {
         />
       )}
 
-      <ManualDownloadForm onJobCreated={addJob} existingAlbumFolders={existingAlbumFolders} />
+      {canDownload && <ManualDownloadForm onJobCreated={addJob} existingAlbumFolders={existingAlbumFolders} />}
 
       <DownloadsPanel
         jobs={jobs}

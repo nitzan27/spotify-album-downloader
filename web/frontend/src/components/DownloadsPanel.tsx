@@ -107,13 +107,15 @@ function TrackedJobRow({
               {saveState === 'saving' && <span className="muted">Saving to folder...</span>}
               {saveState === 'saved' && <span className="muted">Saved to folder.</span>}
               {saveState === 'error' && (
-                <span className="status error" style={{ display: 'inline' }}>
-                  {saveError} -{' '}
-                </span>
+                <>
+                  <span className="status error" style={{ display: 'inline' }}>
+                    {saveError} -{' '}
+                  </span>
+                  <button type="button" className="secondary" onClick={saveToFolder}>
+                    Retry save to folder
+                  </button>
+                </>
               )}
-              <button type="button" className="secondary" onClick={saveToFolder}>
-                {saveState === 'error' ? 'Retry save to folder' : 'Save to folder'}
-              </button>
             </>
           )}
         </JobStatusView>

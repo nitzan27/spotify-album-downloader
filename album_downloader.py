@@ -84,11 +84,28 @@ def _default_progress_callback(event: str, **data) -> None:
         print(f"\n[Done] '{data['album']}' by '{data['artist']}' saved to:\n{data['dest_folder']}")
 
 
+_WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
 def sanitize_filename(name: str) -> str:
     """Strip/replace characters that are illegal in Windows file paths."""
     name = name.replace("/", "-").replace("\\", "-")
     name = re.sub(r'[:*?"<>|]', "", name)
-    return name.strip()
+    name = name.strip()
+    # A trailing dot/space in a path segment is silently dropped by Windows
+    # itself, so this was never visible from the CLI - but the web app's
+    # File System Access API folder picker enforces the same Windows rule
+    # explicitly and raises instead of stripping it, so it must be handled
+    # here too (see downloadFolder.ts's sanitizeFilename(), which mirrors
+    # this function).
+    name = re.sub(r"[. ]+$", "", name)
+    if name.split(".")[0].upper() in _WINDOWS_RESERVED_NAMES:
+        name += "_"
+    return name
 
 
 def get_spotify_client() -> spotipy.Spotify:
