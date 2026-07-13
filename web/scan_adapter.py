@@ -148,7 +148,12 @@ def process_scan_job(job: Job) -> None:
         all_album_ids = _all_cached_album_ids(cache)
 
         def progress_cb(msg: str) -> None:
-            job.progress = msg
+            # sync_missing.py's gather functions prefix these with "[Info] "
+            # (kept as-is for the CLI's own console output/logs) - that
+            # prefix is internal log dressing, not meant for a friend reading
+            # progress text in the browser, so strip it here rather than in
+            # sync_missing.py itself.
+            job.progress = msg.removeprefix("[Info] ")
 
         try:
             all_album_ids = _gather_library_albums(sp, cache, progress_cb)
