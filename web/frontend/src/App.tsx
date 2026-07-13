@@ -8,6 +8,7 @@ import { ScanPanel } from './components/ScanPanel'
 import { ManualDownloadForm } from './components/ManualDownloadForm'
 import { DownloadsPanel } from './components/DownloadsPanel'
 import type { TrackedJob } from './components/DownloadsPanel'
+import logoIcon from './assets/logo-icon.png'
 
 function App() {
   const [me, setMe] = useState<MeResponse | null>(null)
@@ -73,15 +74,11 @@ function App() {
   return (
     <div className="app">
       <div className="brand">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="14" cy="14" r="14" fill="#1DB954" />
-          <circle cx="14" cy="14" r="8.5" fill="#121212" />
-          <circle cx="14" cy="14" r="8.5" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-          <circle cx="14" cy="14" r="5.5" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
-          <circle cx="14" cy="14" r="2.4" fill="#1DB954" />
-          <circle cx="14" cy="14" r="0.9" fill="#121212" />
-        </svg>
-        <h1>Album Downloader</h1>
+        <img src={logoIcon} alt="" className="brand-icon" />
+        <div className="brand-text">
+          <h1>Fuck Clairo</h1>
+          <p className="tagline">album downloader</p>
+        </div>
       </div>
 
       {me && <ConnectAccount me={me} onLoggedOut={() => setMe({ logged_in: false, display_name: null, avatar_url: null })} />}
