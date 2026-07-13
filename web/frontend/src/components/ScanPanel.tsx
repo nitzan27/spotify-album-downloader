@@ -16,9 +16,10 @@ interface Props {
   onJobsCreated: (jobs: TrackedJob[]) => void
   existingAlbumFolders: Set<string> | null
   downloadedAlbums: Set<string>
+  downloadingAlbums: Set<string>
 }
 
-export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbums }: Props) {
+export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbums, downloadingAlbums }: Props) {
   const [market, setMarket] = useState('IL')
   const [jobId, setJobId] = useState<string | null>(null)
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
@@ -32,6 +33,9 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
   const isAlreadyDownloaded = (result: MissingAlbumResult) =>
     (existingAlbumFolders?.has(albumFolderName(result.artist, result.album)) ?? false) ||
     wasJustDownloaded(result)
+
+  const isDownloading = (result: MissingAlbumResult) =>
+    downloadingAlbums.has(albumFolderName(result.artist, result.album))
 
   useEffect(() => {
     if (!jobId) return
@@ -97,24 +101,26 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
 
   const results: MissingAlbumResult[] | null = status?.results ?? null
 
-  // If a download folder is (re-)chosen, or an album finishes downloading,
-  // after some results are already selected, drop any now-known-duplicate
-  // albums from the selection.
+  // If a download folder is (re-)chosen, an album finishes downloading, or an
+  // album starts downloading (e.g. queued from a previous scan), drop any
+  // now-unselectable albums from the selection.
   useEffect(() => {
     if (!results) return
     setSelected((prev) => {
       const next = new Set(prev)
       for (const i of prev) {
-        if (isAlreadyDownloaded(results[i])) next.delete(i)
+        if (isAlreadyDownloaded(results[i]) || isDownloading(results[i])) next.delete(i)
       }
       return next
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingAlbumFolders, downloadedAlbums, results])
+  }, [existingAlbumFolders, downloadedAlbums, downloadingAlbums, results])
 
   const selectAll = () => {
     if (!results) return
-    setSelected(new Set(results.map((_, i) => i).filter((i) => !isAlreadyDownloaded(results[i]))))
+    setSelected(
+      new Set(results.map((_, i) => i).filter((i) => !isAlreadyDownloaded(results[i]) && !isDownloading(results[i]))),
+    )
   }
 
   const clearSelection = () => setSelected(new Set())
@@ -220,15 +226,21 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
               <div className="result-list">
                 {results.map((result: MissingAlbumResult, i: number) => {
                   const already = isAlreadyDownloaded(result)
+                  const downloading = isDownloading(result)
+                  const locked = already || downloading
                   return (
                     <div
                       key={`${result.artist}-${result.album}-${i}`}
-                      className={`result-item${already ? ' already-downloaded' : ''}`}
+                      className={`result-item${locked ? ' already-downloaded' : ''}`}
                       onClick={() => {
-                        if (!already) toggle(i)
+                        if (!locked) toggle(i)
                       }}
                     >
-                      {already ? (
+                      {downloading ? (
+                        <span className="result-check" role="img" aria-label="Downloading">
+                          <span className="spinner" />
+                        </span>
+                      ) : already ? (
                         <span className="result-check" role="img" aria-label="Already downloaded">
                           <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <circle cx="8" cy="8" r="8" fill="#1DB954" />
@@ -277,7 +289,8 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
                       <span>
                         <div>
                           {result.artist} - {result.album}
-                          {already && (
+                          {downloading && <span className="muted"> (downloading...)</span>}
+                          {!downloading && already && (
                             <span className="muted"> ({wasJustDownloaded(result) ? 'downloaded' : 'already downloaded'})</span>
                           )}
                         </div>

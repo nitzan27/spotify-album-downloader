@@ -21,6 +21,11 @@ function App() {
   // was chosen), keyed the same way as existingAlbumFolders so ScanPanel can
   // cross them off its results list without waiting for a folder re-scan.
   const [downloadedAlbums, setDownloadedAlbums] = useState<Set<string>>(new Set())
+  // Albums with a download job currently queued/running - added the instant a
+  // job is created (no need to wait for the first poll) and removed once that
+  // job finishes or fails, so ScanPanel can block re-queuing a duplicate job
+  // for an album that's already in flight.
+  const [downloadingAlbums, setDownloadingAlbums] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     getMe()
@@ -28,10 +33,35 @@ function App() {
       .catch(() => setMe({ logged_in: false, display_name: null }))
   }, [])
 
-  const addJob = (job: TrackedJob) => setJobs((prev) => [...prev, job])
-  const addJobs = (newJobs: TrackedJob[]) => setJobs((prev) => [...prev, ...newJobs])
-  const markAlbumDownloaded = (artist: string, album: string) =>
-    setDownloadedAlbums((prev) => new Set(prev).add(albumFolderName(artist, album)))
+  const addJob = (job: TrackedJob) => {
+    setJobs((prev) => [...prev, job])
+    setDownloadingAlbums((prev) => new Set(prev).add(albumFolderName(job.artist, job.album)))
+  }
+  const addJobs = (newJobs: TrackedJob[]) => {
+    setJobs((prev) => [...prev, ...newJobs])
+    setDownloadingAlbums((prev) => {
+      const next = new Set(prev)
+      for (const job of newJobs) next.add(albumFolderName(job.artist, job.album))
+      return next
+    })
+  }
+  const markAlbumDownloaded = (artist: string, album: string) => {
+    const key = albumFolderName(artist, album)
+    setDownloadedAlbums((prev) => new Set(prev).add(key))
+    setDownloadingAlbums((prev) => {
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }
+  const markAlbumDownloadFailed = (artist: string, album: string) => {
+    const key = albumFolderName(artist, album)
+    setDownloadingAlbums((prev) => {
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }
 
   return (
     <div className="app">
@@ -65,12 +95,18 @@ function App() {
           onJobsCreated={addJobs}
           existingAlbumFolders={existingAlbumFolders}
           downloadedAlbums={downloadedAlbums}
+          downloadingAlbums={downloadingAlbums}
         />
       )}
 
       <ManualDownloadForm onJobCreated={addJob} existingAlbumFolders={existingAlbumFolders} />
 
-      <DownloadsPanel jobs={jobs} downloadDirHandle={downloadDirHandle} onJobDone={markAlbumDownloaded} />
+      <DownloadsPanel
+        jobs={jobs}
+        downloadDirHandle={downloadDirHandle}
+        onJobDone={markAlbumDownloaded}
+        onJobFailed={markAlbumDownloadFailed}
+      />
     </div>
   )
 }

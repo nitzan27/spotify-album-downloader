@@ -255,6 +255,12 @@ a.download:hover {
   height: 100%;
 }
 
+.result-check .spinner {
+  width: 100%;
+  height: 100%;
+  margin-top: 0;
+}
+
 .album-toggle {
   border-radius: 50%;
   transition: transform 0.15s ease;

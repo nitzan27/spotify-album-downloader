@@ -17,10 +17,12 @@ function TrackedJobRow({
   job,
   downloadDirHandle,
   onJobDone,
+  onJobFailed,
 }: {
   job: TrackedJob
   downloadDirHandle: FileSystemDirectoryHandle | null
   onJobDone: (artist: string, album: string) => void
+  onJobFailed: (artist: string, album: string) => void
 }) {
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -41,9 +43,14 @@ function TrackedJobRow({
           timer = window.setTimeout(poll, 2000)
         } else if (result.status === 'done') {
           onJobDone(job.artist, job.album)
+        } else if (result.status === 'error') {
+          onJobFailed(job.artist, job.album)
         }
       } catch (err) {
-        if (!cancelled) setStatus({ status: 'error', progress: '', error: (err as Error).message })
+        if (!cancelled) {
+          setStatus({ status: 'error', progress: '', error: (err as Error).message })
+          onJobFailed(job.artist, job.album)
+        }
       }
     }
     poll()
@@ -124,10 +131,12 @@ export function DownloadsPanel({
   jobs,
   downloadDirHandle,
   onJobDone,
+  onJobFailed,
 }: {
   jobs: TrackedJob[]
   downloadDirHandle: FileSystemDirectoryHandle | null
   onJobDone: (artist: string, album: string) => void
+  onJobFailed: (artist: string, album: string) => void
 }) {
   if (jobs.length === 0) return null
   return (
@@ -135,7 +144,13 @@ export function DownloadsPanel({
       <h2>Downloads</h2>
       <div className="job-list">
         {jobs.map((job) => (
-          <TrackedJobRow key={job.id} job={job} downloadDirHandle={downloadDirHandle} onJobDone={onJobDone} />
+          <TrackedJobRow
+            key={job.id}
+            job={job}
+            downloadDirHandle={downloadDirHandle}
+            onJobDone={onJobDone}
+            onJobFailed={onJobFailed}
+          />
         ))}
       </div>
     </div>
