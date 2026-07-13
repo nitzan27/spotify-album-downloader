@@ -74,17 +74,14 @@ function App() {
 
   // Download buttons stay clickable even while `!canDownload` (styled as
   // greyed-out, not natively `disabled`) specifically so clicking one can
-  // trigger this popup - see ScanPanel/ManualDownloadForm's onBlockedDownload.
-  const [showFolderPopup, setShowFolderPopup] = useState(false)
+  // trigger this popup - see ScanPanel's onBlockedDownload and
+  // ManualDownloadForm's onShowToast (which also covers its own empty-field
+  // validation, replacing the browser's native validation bubble).
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   return (
     <div className="app">
-      {showFolderPopup && (
-        <Toast
-          message="Choose a download folder above to enable downloads."
-          onClose={() => setShowFolderPopup(false)}
-        />
-      )}
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
       <div className="brand">
         <img src={logoIcon} alt="" className="brand-icon" />
         <div className="brand-text">
@@ -112,7 +109,7 @@ function App() {
             onJobCreated={addJob}
             existingAlbumFolders={existingAlbumFolders}
             canDownload={canDownload}
-            onBlockedDownload={() => setShowFolderPopup(true)}
+            onShowToast={setToastMessage}
           />
         </div>
       </div>
@@ -125,7 +122,7 @@ function App() {
             downloadedAlbums={downloadedAlbums}
             downloadingAlbums={downloadingAlbums}
             canDownload={canDownload}
-            onBlockedDownload={() => setShowFolderPopup(true)}
+            onBlockedDownload={() => setToastMessage('Choose a download folder above to enable downloads.')}
           />
         )}
       </div>

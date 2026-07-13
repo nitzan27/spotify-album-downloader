@@ -324,7 +324,11 @@ export function ScanPanel({
               <button
                 type="button"
                 className={!canDownload ? 'button-disabled-look' : undefined}
-                disabled={selected.size === 0 || queuing}
+                // When a folder isn't chosen yet, stay clickable regardless
+                // of selection so the popup always fires - the "nothing
+                // selected" disable only applies once a folder is set and
+                // that's the only remaining reason to block the click.
+                disabled={queuing || (canDownload && selected.size === 0)}
                 onClick={handleDownloadSelected}
               >
                 {queuing ? 'Queuing...' : `Download selected (${selected.size})`}

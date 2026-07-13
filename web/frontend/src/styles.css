@@ -300,7 +300,6 @@ button:disabled {
 .button-disabled-look:hover {
   background: var(--green);
   transform: none;
-  cursor: not-allowed;
 }
 
 button.secondary {
