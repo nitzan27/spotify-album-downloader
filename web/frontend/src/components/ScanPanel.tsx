@@ -213,10 +213,8 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbum
           ) : (
             <>
               <div className="row" style={{ marginTop: '1rem' }}>
-                <span className="muted">
-                  <strong>
-                    {results.length} album{results.length === 1 ? '' : 's'} with missing tracks
-                  </strong>
+                <span className="result-count">
+                  {results.length} album{results.length === 1 ? '' : 's'} with missing tracks
                 </span>
                 <span>
                   <button type="button" className="secondary" onClick={selectAll}>

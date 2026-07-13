@@ -24,8 +24,6 @@ from web.downloader_adapter import process_job, remove_job_files
 from web.scan_adapter import process_scan_job, resume_scan_job
 from web.spotify_auth import finish_login, get_authenticated_client, start_login
 
-MAX_BATCH_JOBS = 25
-
 # The React/TS SPA build (web/frontend/, built via `npm run build`) - built
 # by hand for local dev, built inside the Dockerfile's Node stage in
 # production (the final image itself stays Node-free at runtime).
@@ -208,8 +206,11 @@ class BatchJobRequest(BaseModel):
 def submit_jobs_batch(payload: BatchJobRequest):
     if not payload.albums:
         raise HTTPException(status_code=400, detail="No albums provided.")
-    if len(payload.albums) > MAX_BATCH_JOBS:
-        raise HTTPException(status_code=400, detail=f"Too many albums selected (max {MAX_BATCH_JOBS} at a time).")
+    # No cap on batch size: jobs.DOWNLOAD_WORKER_COUNT already bounds how many
+    # of these actually download concurrently - queuing 300 jobs here just
+    # means 298 of them sit in the queue behind the first 2, not that 300
+    # downloads happen at once. A request-size cap here would only reject a
+    # big "download selected" from a scan for no real protective reason.
     job_ids = []
     for entry in payload.albums:
         artist = entry.artist.strip()
