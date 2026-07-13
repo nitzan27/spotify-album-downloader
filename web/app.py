@@ -98,6 +98,11 @@ def index():
     return FileResponse(os.path.join(FRONTEND_DIST, "index.html"), headers={"Cache-Control": "no-store"})
 
 
+@router.get("/favicon.png")
+def favicon():
+    return FileResponse(os.path.join(FRONTEND_DIST, "favicon.png"))
+
+
 @router.get("/login")
 def login(request: Request):
     session = _get_session(request) or sessions.create_session()
