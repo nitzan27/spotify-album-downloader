@@ -283,6 +283,12 @@ button:hover:not(:disabled) {
   transform: scale(1.02);
 }
 
+/* A quick press-down "pop", on top of hover's pop-up - applies to every
+   button site-wide, not just the folder-pick/select-all/clear set. */
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 button:disabled {
   cursor: default;
   opacity: 0.5;
@@ -311,6 +317,16 @@ button.secondary {
 button.secondary:hover:not(:disabled) {
   background: var(--green);
   color: #000000;
+}
+
+/* Filled green like a primary button, for the folder-pick, select-all and
+   clear buttons specifically, not every secondary button site-wide. No
+   hover override here - it inherits the base button's subtle brighten +
+   scale "pop" instead of swapping to an outlined look. */
+button.secondary-inverted {
+  background: var(--green);
+  color: #000000;
+  border: 1px solid var(--green);
 }
 
 .row {

@@ -236,10 +236,10 @@ export function ScanPanel({
                   {results.length} album{results.length === 1 ? '' : 's'} with missing tracks
                 </span>
                 <span>
-                  <button type="button" className="secondary" onClick={selectAll}>
+                  <button type="button" className="secondary-inverted" onClick={selectAll}>
                     Select all
                   </button>{' '}
-                  <button type="button" className="secondary" onClick={clearSelection}>
+                  <button type="button" className="secondary-inverted" onClick={clearSelection}>
                     Clear
                   </button>
                 </span>

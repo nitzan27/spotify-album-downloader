@@ -37,7 +37,7 @@ export function DownloadFolderPicker({ onFolderChosen }: Props) {
     <div className="card">
       <h2>Download folder</h2>
       <p className="muted">Skips albums you already have, and saves downloads straight to disk.</p>
-      <button type="button" className="secondary" onClick={handlePick}>
+      <button type="button" className="secondary-inverted" onClick={handlePick}>
         {folderName ? `Change folder (${folderName})` : 'Choose download folder'}
       </button>
       {error && (
