@@ -25,6 +25,8 @@ def _make_progress_callback(job: Job):
     def progress_callback(event: str, **data) -> None:
         if event == "fetching_metadata":
             job.progress = f"Looking up '{data['album']}' by '{data['artist']}' on Spotify..."
+        elif event == "musicbrainz_fallback":
+            job.progress = f"'{data['album']}' not found on Spotify - trying MusicBrainz..."
         elif event == "output_folder":
             job.progress = "Downloading cover art..."
         elif event == "track_start":
