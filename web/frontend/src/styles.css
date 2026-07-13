@@ -240,6 +240,11 @@ a.download:hover {
   background: var(--elevated);
   border-radius: 6px;
   cursor: pointer;
+  /* Without this, clicking directly on the title/missing-tracks text can be
+     interpreted as starting a text selection instead of a click (even a
+     sub-pixel mouse move during the click is enough) - the click event never
+     fires in that case, which reads as "only the little icon responds". */
+  user-select: none;
 }
 
 .result-check {
@@ -294,6 +299,11 @@ a.download:hover {
   100% {
     transform: scale(1);
   }
+}
+
+.result-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .result-item .result-title {
