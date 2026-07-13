@@ -14,9 +14,10 @@ import type { TrackedJob } from './DownloadsPanel'
 interface Props {
   onJobsCreated: (jobs: TrackedJob[]) => void
   existingAlbumFolders: Set<string> | null
+  downloadedAlbums: Set<string>
 }
 
-export function ScanPanel({ onJobsCreated, existingAlbumFolders }: Props) {
+export function ScanPanel({ onJobsCreated, existingAlbumFolders, downloadedAlbums }: Props) {
   const [market, setMarket] = useState('')
   const [jobId, setJobId] = useState<string | null>(null)
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
@@ -24,8 +25,12 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [queuing, setQueuing] = useState(false)
 
+  const wasJustDownloaded = (result: MissingAlbumResult) =>
+    downloadedAlbums.has(albumFolderName(result.artist, result.album))
+
   const isAlreadyDownloaded = (result: MissingAlbumResult) =>
-    existingAlbumFolders?.has(albumFolderName(result.artist, result.album)) ?? false
+    (existingAlbumFolders?.has(albumFolderName(result.artist, result.album)) ?? false) ||
+    wasJustDownloaded(result)
 
   useEffect(() => {
     if (!jobId) return
@@ -91,8 +96,9 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders }: Props) {
 
   const results: MissingAlbumResult[] | null = status?.results ?? null
 
-  // If a download folder is (re-)chosen after some results are already
-  // selected, drop any now-known-duplicate albums from the selection.
+  // If a download folder is (re-)chosen, or an album finishes downloading,
+  // after some results are already selected, drop any now-known-duplicate
+  // albums from the selection.
   useEffect(() => {
     if (!results) return
     setSelected((prev) => {
@@ -103,7 +109,7 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders }: Props) {
       return next
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingAlbumFolders, results])
+  }, [existingAlbumFolders, downloadedAlbums, results])
 
   const selectAll = () => {
     if (!results) return
@@ -215,24 +221,69 @@ export function ScanPanel({ onJobsCreated, existingAlbumFolders }: Props) {
                 {results.map((result: MissingAlbumResult, i: number) => {
                   const already = isAlreadyDownloaded(result)
                   return (
-                    <label
+                    <div
                       key={`${result.artist}-${result.album}-${i}`}
                       className={`result-item${already ? ' already-downloaded' : ''}`}
+                      onClick={() => {
+                        if (!already) toggle(i)
+                      }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={selected.has(i)}
-                        disabled={already}
-                        onChange={() => toggle(i)}
-                      />
+                      {already ? (
+                        <span className="result-check" role="img" aria-label="Already downloaded">
+                          <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="8" cy="8" r="8" fill="#1DB954" />
+                            <path
+                              d="M4.5 8.3L6.8 10.6L11.5 5.6"
+                              stroke="#000000"
+                              strokeWidth="1.6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      ) : (
+                        <span
+                          className={`result-check album-toggle${selected.has(i) ? ' checked' : ''}`}
+                          role="checkbox"
+                          aria-checked={selected.has(i)}
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === ' ' || event.key === 'Enter') {
+                              event.preventDefault()
+                              toggle(i)
+                            }
+                          }}
+                        >
+                          {selected.has(i) ? (
+                            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <circle cx="8" cy="8" r="8" fill="#1DB954" />
+                              <path
+                                d="M4.5 8.3L6.8 10.6L11.5 5.6"
+                                stroke="#000000"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <circle cx="8" cy="8" r="7.25" stroke="#B3B3B3" strokeWidth="1.5" />
+                              <path d="M8 4.75V11.25" stroke="#B3B3B3" strokeWidth="1.5" strokeLinecap="round" />
+                              <path d="M4.75 8H11.25" stroke="#B3B3B3" strokeWidth="1.5" strokeLinecap="round" />
+                            </svg>
+                          )}
+                        </span>
+                      )}
                       <span>
                         <div>
                           {result.artist} - {result.album}
-                          {already && <span className="muted"> (already downloaded)</span>}
+                          {already && (
+                            <span className="muted"> ({wasJustDownloaded(result) ? 'downloaded' : 'already downloaded'})</span>
+                          )}
                         </div>
                         <div className="titles">Missing: {result.missing_titles.join(', ')}</div>
                       </span>
-                    </label>
+                    </div>
                   )
                 })}
               </div>

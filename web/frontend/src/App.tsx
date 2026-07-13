@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getMe } from './api'
 import type { MeResponse } from './api'
+import { albumFolderName } from './downloadFolder'
 import { ConnectAccount } from './components/ConnectAccount'
 import { DownloadFolderPicker } from './components/DownloadFolderPicker'
 import { ScanPanel } from './components/ScanPanel'
@@ -16,6 +17,10 @@ function App() {
   // available", which is also what happens by default on unsupported browsers.
   const [existingAlbumFolders, setExistingAlbumFolders] = useState<Set<string> | null>(null)
   const [downloadDirHandle, setDownloadDirHandle] = useState<FileSystemDirectoryHandle | null>(null)
+  // Albums downloaded during this page load (regardless of whether a folder
+  // was chosen), keyed the same way as existingAlbumFolders so ScanPanel can
+  // cross them off its results list without waiting for a folder re-scan.
+  const [downloadedAlbums, setDownloadedAlbums] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     getMe()
@@ -25,6 +30,8 @@ function App() {
 
   const addJob = (job: TrackedJob) => setJobs((prev) => [...prev, job])
   const addJobs = (newJobs: TrackedJob[]) => setJobs((prev) => [...prev, ...newJobs])
+  const markAlbumDownloaded = (artist: string, album: string) =>
+    setDownloadedAlbums((prev) => new Set(prev).add(albumFolderName(artist, album)))
 
   return (
     <div className="app">
@@ -53,11 +60,17 @@ function App() {
         }}
       />
 
-      {me?.logged_in && <ScanPanel onJobsCreated={addJobs} existingAlbumFolders={existingAlbumFolders} />}
+      {me?.logged_in && (
+        <ScanPanel
+          onJobsCreated={addJobs}
+          existingAlbumFolders={existingAlbumFolders}
+          downloadedAlbums={downloadedAlbums}
+        />
+      )}
 
       <ManualDownloadForm onJobCreated={addJob} existingAlbumFolders={existingAlbumFolders} />
 
-      <DownloadsPanel jobs={jobs} downloadDirHandle={downloadDirHandle} />
+      <DownloadsPanel jobs={jobs} downloadDirHandle={downloadDirHandle} onJobDone={markAlbumDownloaded} />
     </div>
   )
 }

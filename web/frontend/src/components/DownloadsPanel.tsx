@@ -16,9 +16,11 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 function TrackedJobRow({
   job,
   downloadDirHandle,
+  onJobDone,
 }: {
   job: TrackedJob
   downloadDirHandle: FileSystemDirectoryHandle | null
+  onJobDone: (artist: string, album: string) => void
 }) {
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -37,6 +39,8 @@ function TrackedJobRow({
         setStatus(result)
         if (result.status === 'queued' || result.status === 'running') {
           timer = window.setTimeout(poll, 2000)
+        } else if (result.status === 'done') {
+          onJobDone(job.artist, job.album)
         }
       } catch (err) {
         if (!cancelled) setStatus({ status: 'error', progress: '', error: (err as Error).message })
@@ -48,6 +52,7 @@ function TrackedJobRow({
       cancelled = true
       if (timer) window.clearTimeout(timer)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.id])
 
   const saveToFolder = async () => {
@@ -118,9 +123,11 @@ function TrackedJobRow({
 export function DownloadsPanel({
   jobs,
   downloadDirHandle,
+  onJobDone,
 }: {
   jobs: TrackedJob[]
   downloadDirHandle: FileSystemDirectoryHandle | null
+  onJobDone: (artist: string, album: string) => void
 }) {
   if (jobs.length === 0) return null
   return (
@@ -128,7 +135,7 @@ export function DownloadsPanel({
       <h2>Downloads</h2>
       <div className="job-list">
         {jobs.map((job) => (
-          <TrackedJobRow key={job.id} job={job} downloadDirHandle={downloadDirHandle} />
+          <TrackedJobRow key={job.id} job={job} downloadDirHandle={downloadDirHandle} onJobDone={onJobDone} />
         ))}
       </div>
     </div>
