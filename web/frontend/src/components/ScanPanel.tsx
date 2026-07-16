@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   getJobStatus,
+  isNetworkError,
   resumeScan,
   startScan,
   submitJobsBatch,
@@ -11,6 +12,10 @@ import { albumFolderName } from '../downloadFolder'
 import { COUNTRY_CODES } from '../countryCodes'
 import { JobStatusView } from './JobStatusView'
 import type { TrackedJob } from './DownloadsPanel'
+
+const POLL_INTERVAL_MS = 2000
+const MAX_POLL_RETRIES = 5
+const MAX_POLL_RETRY_DELAY_MS = 15000
 
 interface Props {
   onJobsCreated: (jobs: TrackedJob[]) => void
@@ -51,7 +56,7 @@ export function ScanPanel({
     let cancelled = false
     let timer: number | undefined
 
-    const poll = async () => {
+    const poll = async (retriesLeft = MAX_POLL_RETRIES) => {
       try {
         const result = await getJobStatus(jobId)
         if (cancelled) return
@@ -61,10 +66,20 @@ export function ScanPanel({
           result.status === 'running' ||
           (result.status === 'rate_limited' && result.will_auto_retry)
         if (stillInFlight) {
-          timer = window.setTimeout(poll, 2000)
+          timer = window.setTimeout(() => poll(MAX_POLL_RETRIES), POLL_INTERVAL_MS)
         }
       } catch (err) {
-        if (!cancelled) setError((err as Error).message)
+        if (cancelled) return
+        // A raw network blip (DNS drop, dev server restart) shouldn't throw
+        // away a long scan's progress - retry with backoff before surfacing
+        // an error, same reasoning as DownloadsPanel's job polling.
+        if (isNetworkError(err) && retriesLeft > 0) {
+          const attempt = MAX_POLL_RETRIES - retriesLeft
+          const delay = Math.min(POLL_INTERVAL_MS * 2 ** attempt, MAX_POLL_RETRY_DELAY_MS)
+          timer = window.setTimeout(() => poll(retriesLeft - 1), delay)
+          return
+        }
+        setError((err as Error).message)
       }
     }
     poll()
@@ -154,6 +169,7 @@ export function ScanPanel({
           label: `${selectedAlbums[i].artist} - ${selectedAlbums[i].album}`,
           artist: selectedAlbums[i].artist,
           album: selectedAlbums[i].album,
+          createdAt: Date.now(),
         })),
       )
       clearSelection()

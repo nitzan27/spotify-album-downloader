@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getDownloadUrl, getJobStatus } from '../api'
+import { getDownloadUrl, getJobStatus, isNetworkError } from '../api'
 import type { JobStatusResponse } from '../api'
 import { saveZipToFolder } from '../downloadFolder'
 
@@ -8,20 +8,33 @@ export interface TrackedJob {
   label: string
   artist: string
   album: string
+  createdAt: number
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+
+const POLL_INTERVAL_MS = 2000
+// A DNS/network blip (e.g. the machine's connection dropping mid-batch) or a
+// dev server restart mid-poll used to surface as an instant, permanent
+// "Error: Failed to fetch" on the job row even though the job itself was
+// still fine server-side. Retry a few times with backoff before giving up -
+// only for a raw fetch()-level failure (isNetworkError), never for a real
+// HTTP error response like a 404 (job genuinely gone), which fails as before.
+const MAX_POLL_RETRIES = 5
+const MAX_POLL_RETRY_DELAY_MS = 15000
 
 function TrackedJobRow({
   job,
   downloadDirHandle,
   onJobDone,
   onJobFailed,
+  onRetry,
 }: {
   job: TrackedJob
   downloadDirHandle: FileSystemDirectoryHandle | null
   onJobDone: (artist: string, album: string) => void
   onJobFailed: (artist: string, album: string) => void
+  onRetry: (job: TrackedJob) => void
 }) {
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -33,7 +46,7 @@ function TrackedJobRow({
     let cancelled = false
     let timer: number | undefined
 
-    const poll = async () => {
+    const poll = async (retriesLeft = MAX_POLL_RETRIES) => {
       try {
         const result = await getJobStatus(job.id)
         if (cancelled) return
@@ -44,17 +57,22 @@ function TrackedJobRow({
         // scan does - so it's treated the same as queued/running here: just
         // keep polling and showing whatever progress text the backend sends.
         if (result.status === 'queued' || result.status === 'running' || result.status === 'rate_limited') {
-          timer = window.setTimeout(poll, 2000)
+          timer = window.setTimeout(() => poll(MAX_POLL_RETRIES), POLL_INTERVAL_MS)
         } else if (result.status === 'done') {
           onJobDone(job.artist, job.album)
         } else if (result.status === 'error') {
           onJobFailed(job.artist, job.album)
         }
       } catch (err) {
-        if (!cancelled) {
-          setStatus({ status: 'error', progress: '', error: (err as Error).message })
-          onJobFailed(job.artist, job.album)
+        if (cancelled) return
+        if (isNetworkError(err) && retriesLeft > 0) {
+          const attempt = MAX_POLL_RETRIES - retriesLeft
+          const delay = Math.min(POLL_INTERVAL_MS * 2 ** attempt, MAX_POLL_RETRY_DELAY_MS)
+          timer = window.setTimeout(() => poll(retriesLeft - 1), delay)
+          return
         }
+        setStatus({ status: 'error', progress: '', error: (err as Error).message })
+        onJobFailed(job.artist, job.album)
       }
     }
     poll()
@@ -108,9 +126,14 @@ function TrackedJobRow({
         </span>
       )}
       {status?.status === 'error' && (
-        <span className="job-status-error" title={status.error ?? undefined}>
-          Error: {status.error}
-        </span>
+        <>
+          <span className="job-status-error" title={status.error ?? undefined}>
+            Error: {status.error}
+          </span>
+          <button type="button" className="secondary" onClick={() => onRetry(job)}>
+            Retry
+          </button>
+        </>
       )}
       {status?.status === 'done' && !downloadDirHandle && (
         <a className="download" href={getDownloadUrl(job.id)}>
@@ -160,11 +183,13 @@ export function DownloadsPanel({
   downloadDirHandle,
   onJobDone,
   onJobFailed,
+  onRetry,
 }: {
   jobs: TrackedJob[]
   downloadDirHandle: FileSystemDirectoryHandle | null
   onJobDone: (artist: string, album: string) => void
   onJobFailed: (artist: string, album: string) => void
+  onRetry: (job: TrackedJob) => void
 }) {
   if (jobs.length === 0) return null
   return (
@@ -178,6 +203,7 @@ export function DownloadsPanel({
             downloadDirHandle={downloadDirHandle}
             onJobDone={onJobDone}
             onJobFailed={onJobFailed}
+            onRetry={onRetry}
           />
         ))}
       </div>

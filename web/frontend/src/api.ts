@@ -45,6 +45,17 @@ export interface JobStatusResponse {
 }
 
 /**
+ * True for a raw browser fetch failure (DNS blip, dropped connection, dev
+ * server restart mid-request) - fetch() rejects with a TypeError in that
+ * case, distinct from the plain Error thrown below for a real HTTP error
+ * response (e.g. 404 job-not-found). Callers use this to decide whether a
+ * failed poll is worth retrying or is a genuine terminal state.
+ */
+export function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError
+}
+
+/**
  * Helper to ensure we process API errors uniformly
  */
 async function handleResponse<T>(response: Response): Promise<T> {

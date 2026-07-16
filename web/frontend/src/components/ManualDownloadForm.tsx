@@ -50,6 +50,7 @@ export function ManualDownloadForm({ onJobCreated, existingAlbumFolders, canDown
         label: `${trimmedArtist} - ${trimmedAlbum}`,
         artist: trimmedArtist,
         album: trimmedAlbum,
+        createdAt: Date.now(),
       })
       setArtist('')
       setAlbum('')
