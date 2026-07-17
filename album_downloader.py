@@ -400,9 +400,23 @@ def download_track_audio(
         "no_warnings": True,
         # The web client's extraction path triggers YouTube's "Sign in to
         # confirm you're not a bot" check far more readily from datacenter
-        # IPs (e.g. cloud hosts) than from residential ones; the Android/iOS
-        # client's API doesn't hit the same check as of this writing.
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
+        # IPs (e.g. cloud hosts) than from residential ones. The Android/iOS
+        # client bypass alone stopped being reliable as of mid-2026 - YouTube
+        # started requiring a proof-of-origin (PO) token even from those
+        # clients. The bgutil-ytdlp-pot-provider package (requirements.txt)
+        # registers itself with yt-dlp automatically and fetches a token from
+        # a sidecar server at 127.0.0.1:4416 (started by docker/start.sh in
+        # the deployed container - see the Dockerfile's bgutil-build stage)
+        # with no YouTube account or manually exported cookies needed. This
+        # is still cat-and-mouse: if it stops working, check
+        # https://github.com/Brainicism/bgutil-ytdlp-pot-provider for a
+        # newer release tag to bump the Dockerfile's pinned version to.
+        # Locally (no sidecar running) this is a harmless no-op - the plugin
+        # just fails to reach the server and yt-dlp proceeds without a token.
+        "extractor_args": {
+            "youtube": {"player_client": ["android", "ios", "web"]},
+            "youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]},
+        },
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:

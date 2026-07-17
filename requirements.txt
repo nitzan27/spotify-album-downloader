@@ -1,5 +1,6 @@
 spotipy
 yt-dlp
+bgutil-ytdlp-pot-provider
 mutagen
 requests
 python-dotenv
