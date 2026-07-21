@@ -73,14 +73,41 @@ def pot_status():
     up but YouTube rejected the token anyway." No shell/SSH access to the
     Render container otherwise exists on the free tier to check this directly.
     """
+    import json
     import urllib.error
     import urllib.request
 
     try:
         with urllib.request.urlopen("http://127.0.0.1:4416/ping", timeout=3) as resp:
-            return {"reachable": True, "body": resp.read().decode()}
+            ping_result = {"reachable": True, "body": resp.read().decode()}
     except (urllib.error.URLError, OSError) as exc:
         return {"reachable": False, "error": str(exc)}
+
+    # /ping only proves the sidecar process is alive - it says nothing about
+    # whether it can actually mint a usable token (that requires its own
+    # outbound call to Google's botguard endpoint, which could itself be
+    # blocked/failing from Render's network even though the sidecar itself
+    # is up). Request one for a real, known-public video id the same way
+    # yt-dlp's plugin would, to check that specifically.
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:4416/get_pot",
+            data=json.dumps({"content_binding": "dQw4w9WgXcQ"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = json.loads(resp.read().decode())
+            token = body.get("poToken")
+            return {
+                **ping_result,
+                "token_generation": "ok" if token else "no token in response",
+                "token_preview": (token[:20] + "...") if token else None,
+            }
+    except urllib.error.HTTPError as exc:
+        return {**ping_result, "token_generation": "failed", "error": f"HTTP {exc.code}: {exc.read().decode(errors='replace')}"}
+    except (urllib.error.URLError, OSError) as exc:
+        return {**ping_result, "token_generation": "failed", "error": str(exc)}
 
 
 router = APIRouter()
