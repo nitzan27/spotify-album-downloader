@@ -26,7 +26,8 @@ from web.spotify_auth import finish_login, get_authenticated_client, start_login
 
 # The React/TS SPA build (web/frontend/, built via `npm run build`) - built
 # by hand for local dev, built inside the Dockerfile's Node stage in
-# production (the final image itself stays Node-free at runtime).
+# production (Node is also kept in the final runtime image - see the
+# Dockerfile - to run the bgutil PO-token sidecar; see /debug/pot-status below).
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 
 SESSION_COOKIE_NAME = "sid"
@@ -58,6 +59,28 @@ app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
+
+
+@app.get("/debug/pot-status")
+def pot_status():
+    """Diagnostic only - reports whether the bgutil PO-token sidecar
+    (docker/start.sh, see the Dockerfile's bgutil-build stage) is actually
+    reachable. Added because yt-dlp's own logs run with quiet=True/
+    no_warnings=True (see album_downloader.py's ydl_opts), which suppresses
+    the info/warning lines that would otherwise reveal whether the sidecar
+    was even consulted - so a YouTube "Sign in to confirm you're not a bot"
+    failure in the logs alone can't distinguish "sidecar down" from "sidecar
+    up but YouTube rejected the token anyway." No shell/SSH access to the
+    Render container otherwise exists on the free tier to check this directly.
+    """
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:4416/ping", timeout=3) as resp:
+            return {"reachable": True, "body": resp.read().decode()}
+    except (urllib.error.URLError, OSError) as exc:
+        return {"reachable": False, "error": str(exc)}
 
 
 router = APIRouter()
