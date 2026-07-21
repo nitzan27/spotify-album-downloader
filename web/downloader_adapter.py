@@ -76,8 +76,9 @@ def process_job(job: Job) -> None:
     shutil.rmtree(result.dest_folder, ignore_errors=True)
 
     job.zip_path = zip_path
+    job.succeeded_tracks = result.succeeded_tracks
     job.failed_tracks = result.failed_tracks
-    job.total_tracks = len(result.succeeded_titles) + len(result.failed_tracks)
+    job.total_tracks = len(result.succeeded_tracks) + len(result.failed_tracks)
     job.progress = (
         "Done."
         if not result.failed_tracks

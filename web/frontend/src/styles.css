@@ -587,6 +587,50 @@ a.download:hover {
   overflow-wrap: break-word;
 }
 
+.icon-button {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--elevated);
+  color: var(--text);
+}
+
+.job-sources-panel {
+  margin: 0.4rem 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--card);
+  border-radius: 6px;
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+.job-sources-panel li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.15rem 0;
+}
+
+.job-sources-title {
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.job-sources-source {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .job-row button.secondary {
   padding: 0.35rem 0.85rem;
   font-size: 0.75rem;

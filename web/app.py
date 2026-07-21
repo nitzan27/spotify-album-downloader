@@ -256,6 +256,7 @@ def job_status(request: Request, job_id: str):
             "error": job.error,
             "results": job.results,
             "will_auto_retry": will_auto_retry,
+            "succeeded_tracks": job.succeeded_tracks,
             "failed_tracks": job.failed_tracks,
             "total_tracks": job.total_tracks,
         }
@@ -264,6 +265,7 @@ def job_status(request: Request, job_id: str):
         "progress": job.progress,
         "error": job.error,
         "will_auto_retry": will_auto_retry,
+        "succeeded_tracks": job.succeeded_tracks,
         "failed_tracks": job.failed_tracks,
         "total_tracks": job.total_tracks,
     }

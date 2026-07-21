@@ -109,7 +109,7 @@ def _default_progress_callback(event: str, **data) -> None:
         print(f"[{data['track_number']}/{data['total']}] Downloading: {data['title']}...")
     elif event == "track_done":
         if data["success"]:
-            print(f"[Success] Tagged {data['filename']}")
+            print(f"[Success] Tagged {data['filename']} (via {data['source']})")
         else:
             print(f"[Error] {data['error']}")
     elif event == "done":
@@ -380,7 +380,7 @@ class AlbumDownloadResult:
     dest_folder: str
     artist: str
     album: str
-    succeeded_titles: list[str]
+    succeeded_tracks: list[dict]  # [{"title": str, "source": str}, ...]
     failed_tracks: list[dict]  # [{"title": str, "reason": str}, ...]
 
 
@@ -550,10 +550,13 @@ def _download_from_source(
 
 def download_track_audio(
     artist: str, title: str, expected_duration_sec: Optional[float], file_path: str
-) -> None:
+) -> str:
     """Try each source in _AUDIO_SOURCES (SoundCloud, then YouTube, then
-    Mail.ru Music) in turn and
-    download/convert the best match to mp3 at file_path.
+    Mail.ru Music) in turn and download/convert the best match to mp3 at
+    file_path. Returns the label of whichever source it actually came from
+    (e.g. "SoundCloud") - callers that want to know where a track was found
+    (download_album() does, to populate AlbumDownloadResult.succeeded_tracks)
+    don't have to guess.
 
     If expected_duration_sec is known (from Spotify's track metadata), each
     source's top handful of search results are checked against it first and
@@ -568,7 +571,7 @@ def download_track_audio(
     for source in _AUDIO_SOURCES:
         try:
             _download_from_source(source, artist, title, expected_duration_sec, file_path)
-            return
+            return source["label"]
         except Exception as exc:
             failure_reasons.append(f"{source['label']}: {exc}")
 
@@ -660,7 +663,7 @@ def download_album(
     try:
         cover_path = download_cover_image(cover_url, staging_dir)
 
-        succeeded_titles: list[str] = []
+        succeeded_tracks: list[dict] = []
         failed_tracks: list[dict] = []
 
         total = len(tracklist)
@@ -676,13 +679,13 @@ def download_album(
 
             progress_callback("track_start", track_number=track_num, total=total, title=title)
             try:
-                download_track_audio(real_artist, title, expected_duration_sec, file_path)
+                source = download_track_audio(real_artist, title, expected_duration_sec, file_path)
             except Exception as exc:
                 reason = f"Failed to download '{title}': {exc}"
                 failed_tracks.append({"title": title, "reason": reason})
                 progress_callback(
                     "track_done", track_number=track_num, title=title, filename=filename,
-                    success=False, error=reason,
+                    success=False, error=reason, source=None,
                 )
                 continue
 
@@ -691,7 +694,7 @@ def download_album(
                 failed_tracks.append({"title": title, "reason": reason})
                 progress_callback(
                     "track_done", track_number=track_num, title=title, filename=filename,
-                    success=False, error=reason,
+                    success=False, error=reason, source=None,
                 )
                 continue
 
@@ -705,17 +708,17 @@ def download_album(
                     track["total_tracks"],
                     cover_path,
                 )
-                succeeded_titles.append(title)
+                succeeded_tracks.append({"title": title, "source": source})
                 progress_callback(
                     "track_done", track_number=track_num, title=title, filename=filename,
-                    success=True, error=None,
+                    success=True, error=None, source=source,
                 )
             except Exception as exc:
                 reason = f"Failed to tag '{filename}': {exc}"
                 failed_tracks.append({"title": title, "reason": reason})
                 progress_callback(
                     "track_done", track_number=track_num, title=title, filename=filename,
-                    success=False, error=reason,
+                    success=False, error=reason, source=None,
                 )
 
         # The cover was only ever needed for embedding into each track's own
@@ -724,7 +727,7 @@ def download_album(
         if cover_path and os.path.exists(cover_path):
             os.remove(cover_path)
 
-        if not succeeded_titles:
+        if not succeeded_tracks:
             raise AlbumDownloadError(real_artist, real_album_name, failed_tracks)
 
         if os.path.isdir(dest_folder):
@@ -750,9 +753,9 @@ def download_album(
 
     progress_callback(
         "done", artist=real_artist, album=real_album_name, dest_folder=dest_folder,
-        succeeded_titles=succeeded_titles, failed_tracks=failed_tracks,
+        succeeded_tracks=succeeded_tracks, failed_tracks=failed_tracks,
     )
-    return AlbumDownloadResult(dest_folder, real_artist, real_album_name, succeeded_titles, failed_tracks)
+    return AlbumDownloadResult(dest_folder, real_artist, real_album_name, succeeded_tracks, failed_tracks)
 
 
 def download_from_queue_file(queue_path: str) -> None:

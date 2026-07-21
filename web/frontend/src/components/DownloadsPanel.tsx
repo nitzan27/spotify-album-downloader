@@ -39,6 +39,7 @@ function TrackedJobRow({
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [showSources, setShowSources] = useState(false)
 
   // Each row polls itself, keyed only on job.id - appending a new job to the
   // parent's list never disturbs already-running pollers for earlier jobs.
@@ -116,74 +117,99 @@ function TrackedJobRow({
   // a chance to fire) the same as 'saving' so the row never flashes empty.
   const isSaving = saveState === 'saving' || saveState === 'idle'
 
+  const hasSourceInfo = status?.status === 'done' && !!status.succeeded_tracks && status.succeeded_tracks.length > 0
+
   return (
-    <div className="job-row">
-      <span className="job-label">{job.label}</span>
-      {status?.status === 'done' && status.failed_tracks && status.failed_tracks.length > 0 && (
-        <span
-          className="job-status-warning"
-          title={status.failed_tracks.map((t) => `${t.title}: ${t.reason}`).join('\n')}
-        >
-          {status.total_tracks
-            ? `${status.total_tracks - status.failed_tracks.length}/${status.total_tracks} tracks — missing: `
-            : 'Missing: '}
-          {status.failed_tracks.map((t) => t.title).join(', ')}
-        </span>
-      )}
-      {isInFlight && (
-        <span className="job-status-text muted">
-          {status?.progress || 'Queuing...'}
-          <span className="spinner" />
-        </span>
-      )}
-      {status?.status === 'error' && (
-        <>
-          <span className="job-status-error" title={status.error ?? undefined}>
-            Error: {status.error}
+    <div className="job-block">
+      <div className="job-row">
+        <span className="job-label">{job.label}</span>
+        {status?.status === 'done' && status.failed_tracks && status.failed_tracks.length > 0 && (
+          <span
+            className="job-status-warning"
+            title={status.failed_tracks.map((t) => `${t.title}: ${t.reason}`).join('\n')}
+          >
+            {status.total_tracks
+              ? `${status.total_tracks - status.failed_tracks.length}/${status.total_tracks} tracks — missing: `
+              : 'Missing: '}
+            {status.failed_tracks.map((t) => t.title).join(', ')}
           </span>
-          <button type="button" className="secondary" onClick={() => onRetry(job)}>
-            Retry
-          </button>
-        </>
-      )}
-      {status?.status === 'done' && !downloadDirHandle && (
-        <a className="download" href={getDownloadUrl(job.id)}>
-          Download zip
-        </a>
-      )}
-      {status?.status === 'done' && downloadDirHandle && (
-        <>
-          {isSaving && (
-            <span className="job-status-text muted">
-              Saving...
-              <span className="spinner" />
+        )}
+        {isInFlight && (
+          <span className="job-status-text muted">
+            {status?.progress || 'Queuing...'}
+            <span className="spinner" />
+          </span>
+        )}
+        {status?.status === 'error' && (
+          <>
+            <span className="job-status-error" title={status.error ?? undefined}>
+              Error: {status.error}
             </span>
-          )}
-          {saveState === 'saved' && (
-            <span className="result-check" role="img" aria-label="Saved to folder">
-              <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="8" cy="8" r="8" fill="#1DB954" />
-                <path
-                  d="M4.5 8.3L6.8 10.6L11.5 5.6"
-                  stroke="#000000"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-          )}
-          {saveState === 'error' && (
-            <>
-              <span className="job-status-error" title={saveError ?? undefined}>
-                {saveError}
+            <button type="button" className="secondary" onClick={() => onRetry(job)}>
+              Retry
+            </button>
+          </>
+        )}
+        {status?.status === 'done' && !downloadDirHandle && (
+          <a className="download" href={getDownloadUrl(job.id)}>
+            Download zip
+          </a>
+        )}
+        {status?.status === 'done' && downloadDirHandle && (
+          <>
+            {isSaving && (
+              <span className="job-status-text muted">
+                Saving...
+                <span className="spinner" />
               </span>
-              <button type="button" className="secondary" onClick={saveToFolder}>
-                Retry
-              </button>
-            </>
-          )}
-        </>
+            )}
+            {saveState === 'saved' && (
+              <span className="result-check" role="img" aria-label="Saved to folder">
+                <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="8" cy="8" r="8" fill="#1DB954" />
+                  <path
+                    d="M4.5 8.3L6.8 10.6L11.5 5.6"
+                    stroke="#000000"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            )}
+            {saveState === 'error' && (
+              <>
+                <span className="job-status-error" title={saveError ?? undefined}>
+                  {saveError}
+                </span>
+                <button type="button" className="secondary" onClick={saveToFolder}>
+                  Retry
+                </button>
+              </>
+            )}
+          </>
+        )}
+        {hasSourceInfo && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={showSources ? 'Hide download sources' : 'Show download sources'}
+            aria-expanded={showSources}
+            onClick={() => setShowSources((v) => !v)}
+          >
+            ⓘ
+          </button>
+        )}
+      </div>
+      {showSources && hasSourceInfo && (
+        <ul className="job-sources-panel">
+          {status!.succeeded_tracks!.map((t) => (
+            <li key={t.title}>
+              <span className="job-sources-title">{t.title}</span>
+              <span className="job-sources-source">{t.source}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )

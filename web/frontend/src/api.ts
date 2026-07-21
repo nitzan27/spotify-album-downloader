@@ -31,6 +31,11 @@ export interface MissingAlbumResult {
   missing_titles: string[];
 }
 
+export interface SucceededTrack {
+  title: string;
+  source: string; // e.g. "SoundCloud", "YouTube", "Mail.ru Music"
+}
+
 export interface FailedTrack {
   title: string;
   reason: string;
@@ -47,6 +52,10 @@ export interface JobStatusResponse {
   // self-resolves to "error" once retries are exhausted, so this is
   // informational only there (the frontend just keeps polling regardless).
   will_auto_retry?: boolean;
+  // Download jobs only: populated once status is "done", one entry per
+  // track that succeeded, naming which source it came from. Always [] for
+  // scan jobs.
+  succeeded_tracks?: SucceededTrack[];
   // Download jobs only: non-empty only when status is "done" but some
   // tracks couldn't be found on any source - the job still delivers a zip of
   // whatever succeeded. Always [] for scan jobs.
