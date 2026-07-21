@@ -22,11 +22,16 @@ Setup
    (or hardcode them in the CONFIGURATION section below).
 """
 
+import glob
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
+import urllib.parse
+from dataclasses import dataclass
 from typing import Optional
 
 import requests
@@ -109,6 +114,11 @@ def _default_progress_callback(event: str, **data) -> None:
             print(f"[Error] {data['error']}")
     elif event == "done":
         print(f"\n[Done] '{data['album']}' by '{data['artist']}' saved to:\n{data['dest_folder']}")
+        failed_tracks = data.get("failed_tracks") or []
+        if failed_tracks:
+            print(f"[Warning] {len(failed_tracks)} track(s) could not be downloaded:")
+            for failed in failed_tracks:
+                print(f"    - {failed['title']}: {failed['reason']}")
 
 
 _WINDOWS_RESERVED_NAMES = {
@@ -300,7 +310,13 @@ def fetch_album_metadata(
 
 
 def download_cover_image(cover_url: str, dest_folder: str) -> str | None:
-    """Download the album cover to '00 cover.jpg' inside dest_folder."""
+    """Download the album cover to '00 cover.jpg' inside dest_folder.
+
+    This is a transient file, not part of the delivered album: it's only
+    fetched so tag_mp3() can embed it into each track's own tags, and
+    download_album() deletes it before the folder is promoted/zipped - see
+    the removal step there.
+    """
     if not cover_url:
         print("[Warning] No album art available; skipping cover download.")
         return None
@@ -324,14 +340,48 @@ def download_cover_image(cover_url: str, dest_folder: str) -> str | None:
 
 
 _SEARCH_CANDIDATES = 5
-_MIN_DURATION_TOLERANCE_SECONDS = 15
-_DURATION_TOLERANCE_RATIO = 0.12
+# Widened from (15s, 12%) - that was rejecting plausible matches too often
+# (e.g. a slightly different edit/remaster a few seconds off). Still tight
+# enough to reject a genuinely wrong result (a mix, full album, etc.) - a
+# 3-minute track now tolerates +/-36s instead of +/-21.6s.
+_MIN_DURATION_TOLERANCE_SECONDS = 25
+_DURATION_TOLERANCE_RATIO = 0.20
 
 
 class TrackNotFoundError(Exception):
-    """Raised when no YouTube search result's duration plausibly matches the
-    Spotify track - e.g. the track isn't really uploaded as a standalone song,
-    so the top hit is something unrelated (a mix, full album, etc.)."""
+    """Raised when no search result's duration plausibly matches the Spotify
+    track on any source (SoundCloud, then YouTube, then Mail.ru Music) - e.g. the track isn't
+    really uploaded as a standalone song, so the top hit is something
+    unrelated (a mix, full album, etc.)."""
+
+
+class AlbumDownloadError(Exception):
+    """Raised by download_album() when every track failed on every source -
+    nothing worth keeping was produced, so no folder is left on disk (see the
+    staging-directory handling in download_album()). Distinct from
+    SpotifyLookupError: the album's metadata was found fine, its audio just
+    wasn't downloadable anywhere."""
+
+    def __init__(self, artist: str, album: str, failed_tracks: list[dict]):
+        total = len(failed_tracks)
+        super().__init__(
+            f"Could not download any tracks for '{album}' by '{artist}' (0/{total} succeeded)."
+        )
+        self.artist = artist
+        self.album = album
+        self.failed_tracks = failed_tracks
+
+
+@dataclass
+class AlbumDownloadResult:
+    """download_album()'s return value: where it ended up, and which tracks
+    succeeded/failed getting there."""
+
+    dest_folder: str
+    artist: str
+    album: str
+    succeeded_titles: list[str]
+    failed_tracks: list[dict]  # [{"title": str, "reason": str}, ...]
 
 
 def _pick_best_duration_match(entries: list[dict], expected_duration_sec: float) -> Optional[dict]:
@@ -347,40 +397,122 @@ def _pick_best_duration_match(entries: list[dict], expected_duration_sec: float)
     return None
 
 
-def download_track_audio(
-    artist: str, title: str, expected_duration_sec: Optional[float], file_path: str
-) -> None:
-    """Search YouTube via yt-dlp and download/convert the best match to mp3 at file_path.
+def _youtube_download_target(entry: dict) -> str:
+    # Flat search entries already carry the full watch URL in "url" - fall
+    # back to reconstructing it from "id" defensively in case that ever changes.
+    return entry.get("url") or f"https://www.youtube.com/watch?v={entry['id']}"
 
-    If expected_duration_sec is known (from Spotify's track metadata), the top
-    handful of search results are checked against it first and the closest
-    in-tolerance one is downloaded - rejecting the search entirely (raising
-    TrackNotFoundError) rather than blindly downloading the #1 hit when
-    nothing matches. Without this, a track that isn't really uploaded to
-    YouTube as a standalone song can silently download something wildly
-    unrelated (e.g. a multi-hour mix) as if it were the real track.
-    """
-    search_query = f"ytsearch{_SEARCH_CANDIDATES}:{artist} - {title} (Audio)"
+
+def _soundcloud_download_target(entry: dict) -> str:
+    # Unlike YouTube, SoundCloud's flat-search "url" field is an
+    # api.soundcloud.com/tracks/... endpoint that yt-dlp can't re-extract -
+    # "webpage_url" (https://soundcloud.com/...) is the one that actually
+    # downloads (confirmed live).
+    return entry["webpage_url"]
+
+
+def _mailru_search_query(artist: str, title: str) -> str:
+    # Mail.ru Music has no ytsearch-style "prefix:query" shortcut - its
+    # yt-dlp extractor only accepts a real search-page URL.
+    return f"https://my.mail.ru/music/search/{urllib.parse.quote(f'{artist} {title}')}"
+
+
+def _mailru_download_target(entry: dict) -> str:
+    # Unlike YouTube/SoundCloud, "url" here is already a direct, no-further-
+    # extraction-needed .mp3 file link (confirmed live) - "webpage_url" is
+    # useless for this extractor (it's just the search page, identical for
+    # every entry).
+    return entry["url"]
+
+
+# Tried in order for every track: SoundCloud, then YouTube, then Mail.ru
+# Music as a last resort. SoundCloud doesn't hit YouTube's bot-check at all,
+# and its uploads skew toward exactly the kind of independent/underground
+# tracks that tend to fail YouTube's duration match in the first place.
+# Mail.ru is tried last - it's the least clean integration (no bounded
+# search, see below) and the one most likely to host tracks with no
+# legitimate rights-holder relationship at all, so it's a fallback of last
+# resort rather than a peer of the other two. Each source's own ydl_opts
+# stays scoped to that source - e.g. YouTube's bot-check extractor_args (see
+# below) would be a harmless no-op against a SoundCloud/Mail.ru URL, but
+# scoping it out avoids a future reader wondering why a non-YouTube download
+# references a YouTube PO-token sidecar.
+_AUDIO_SOURCES = [
+    {
+        "label": "SoundCloud",
+        "build_search_query": lambda artist, title: f"scsearch{_SEARCH_CANDIDATES}:{artist} - {title}",
+        "download_target": _soundcloud_download_target,
+        "extractor_args": {},
+    },
+    {
+        "label": "YouTube",
+        # "(Audio)" biases YouTube's search toward audio-only/lyric-video
+        # uploads over live performances etc. - not a SoundCloud/Mail.ru convention.
+        "build_search_query": lambda artist, title: f"ytsearch{_SEARCH_CANDIDATES}:{artist} - {title} (Audio)",
+        "download_target": _youtube_download_target,
+        "extractor_args": {
+            # The web client's extraction path triggers YouTube's "Sign in to
+            # confirm you're not a bot" check far more readily from datacenter
+            # IPs (e.g. cloud hosts) than from residential ones. The Android/iOS
+            # client bypass alone stopped being reliable as of mid-2026 - YouTube
+            # started requiring a proof-of-origin (PO) token even from those
+            # clients. The bgutil-ytdlp-pot-provider package (requirements.txt)
+            # registers itself with yt-dlp automatically and fetches a token from
+            # a sidecar server at 127.0.0.1:4416 (started by docker/start.sh in
+            # the deployed container - see the Dockerfile's bgutil-build stage)
+            # with no YouTube account or manually exported cookies needed. This
+            # is still cat-and-mouse: if it stops working, check
+            # https://github.com/Brainicism/bgutil-ytdlp-pot-provider for a
+            # newer release tag to bump the Dockerfile's pinned version to.
+            # Locally (no sidecar running) this is a harmless no-op - the plugin
+            # just fails to reach the server and yt-dlp proceeds without a token.
+            "youtube": {"player_client": ["android", "ios", "web"]},
+            "youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]},
+        },
+    },
+    {
+        "label": "Mail.ru Music",
+        "build_search_query": _mailru_search_query,
+        "download_target": _mailru_download_target,
+        "extractor_args": {},
+    },
+]
+
+
+def _search_entries(search_query: str) -> list[dict]:
+    search_opts = {"extract_flat": "in_playlist", "quiet": True, "no_warnings": True}
+    with yt_dlp.YoutubeDL(search_opts) as ydl:
+        info = ydl.extract_info(search_query, download=False)
+    entries = (info or {}).get("entries") or []
+    # Unlike YouTube/SoundCloud's search prefixes, Mail.ru's search extractor
+    # has no result-count limit and eagerly fetches everything server-side
+    # (confirmed live: 262 results for a single well-known track) - trimming
+    # here doesn't save that network cost, but keeps match consideration
+    # consistent with the other two sources (trust the search engine's
+    # top-N relevance ranking rather than scanning its entire result set).
+    return entries[:_SEARCH_CANDIDATES]
+
+
+def _download_from_source(
+    source: dict, artist: str, title: str, expected_duration_sec: Optional[float], file_path: str
+) -> None:
+    """Try a single source (SoundCloud, YouTube, or Mail.ru Music); raises on
+    any failure - no plausible duration match, or a real yt-dlp download
+    error - for the caller to catch and move on to the next source."""
+    search_query = source["build_search_query"](artist, title)
 
     download_target = search_query
     if expected_duration_sec is not None:
-        search_opts = {
-            "extract_flat": "in_playlist",
-            "quiet": True,
-            "no_warnings": True,
-        }
-        with yt_dlp.YoutubeDL(search_opts) as ydl:
-            info = ydl.extract_info(search_query, download=False)
-        entries = (info or {}).get("entries") or []
+        entries = _search_entries(search_query)
         best = _pick_best_duration_match(entries, expected_duration_sec)
         if best is None:
             closest = min((e["duration"] for e in entries if e.get("duration") is not None), default=None)
             raise TrackNotFoundError(
-                f"No matching-length YouTube result for '{title}' "
+                f"no matching-length {source['label']} result "
                 f"(expected ~{expected_duration_sec:.0f}s, closest candidate was "
                 f"{'n/a' if closest is None else f'{closest:.0f}s'})"
             )
-        download_target = f"https://www.youtube.com/watch?v={best['id']}"
+        download_target = source["download_target"](best)
 
     # yt-dlp appends the real extension itself; strip our fixed ".mp3" for the template.
     output_template = file_path[:-len(".mp3")] + ".%(ext)s"
@@ -398,29 +530,51 @@ def download_track_audio(
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        # The web client's extraction path triggers YouTube's "Sign in to
-        # confirm you're not a bot" check far more readily from datacenter
-        # IPs (e.g. cloud hosts) than from residential ones. The Android/iOS
-        # client bypass alone stopped being reliable as of mid-2026 - YouTube
-        # started requiring a proof-of-origin (PO) token even from those
-        # clients. The bgutil-ytdlp-pot-provider package (requirements.txt)
-        # registers itself with yt-dlp automatically and fetches a token from
-        # a sidecar server at 127.0.0.1:4416 (started by docker/start.sh in
-        # the deployed container - see the Dockerfile's bgutil-build stage)
-        # with no YouTube account or manually exported cookies needed. This
-        # is still cat-and-mouse: if it stops working, check
-        # https://github.com/Brainicism/bgutil-ytdlp-pot-provider for a
-        # newer release tag to bump the Dockerfile's pinned version to.
-        # Locally (no sidecar running) this is a harmless no-op - the plugin
-        # just fails to reach the server and yt-dlp proceeds without a token.
-        "extractor_args": {
-            "youtube": {"player_client": ["android", "ios", "web"]},
-            "youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]},
-        },
+        "extractor_args": source["extractor_args"],
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([download_target])
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([download_target])
+    except Exception:
+        # Clean up any partial artifact (a half-written .mp3, or the raw
+        # pre-postprocessing stream) so it can't confuse the next source's
+        # attempt or the caller's file-exists check.
+        for stray in glob.glob(file_path[:-len(".mp3")] + ".*"):
+            try:
+                os.remove(stray)
+            except OSError:
+                pass
+        raise
+
+
+def download_track_audio(
+    artist: str, title: str, expected_duration_sec: Optional[float], file_path: str
+) -> None:
+    """Try each source in _AUDIO_SOURCES (SoundCloud, then YouTube, then
+    Mail.ru Music) in turn and
+    download/convert the best match to mp3 at file_path.
+
+    If expected_duration_sec is known (from Spotify's track metadata), each
+    source's top handful of search results are checked against it first and
+    the closest in-tolerance one is downloaded - rather than blindly
+    downloading the #1 hit when nothing matches. Without this, a track that
+    isn't really uploaded as a standalone song can silently download
+    something wildly unrelated (e.g. a multi-hour mix) as if it were the real
+    track. Only raises TrackNotFoundError (aggregating every source's
+    specific rejection reason) once every source has been tried and failed.
+    """
+    failure_reasons = []
+    for source in _AUDIO_SOURCES:
+        try:
+            _download_from_source(source, artist, title, expected_duration_sec, file_path)
+            return
+        except Exception as exc:
+            failure_reasons.append(f"{source['label']}: {exc}")
+
+    raise TrackNotFoundError(
+        f"Could not find '{title}' on any source - " + "; ".join(failure_reasons)
+    )
 
 
 def tag_mp3(
@@ -462,13 +616,20 @@ def download_album(
     album_name: str,
     dest_root: str = BASE_MUSIC_PATH,
     progress_callback=_default_progress_callback,
-) -> str:
+) -> AlbumDownloadResult:
     """Main pipeline: fetch metadata, download tracks, tag them, all in one album folder.
 
-    Returns the destination folder path. `dest_root` lets callers (e.g. a web
-    backend) redirect output to a per-job temp directory instead of the
-    hardcoded BASE_MUSIC_PATH. `progress_callback` lets callers observe
-    progress structurally instead of scraping stdout.
+    Returns an AlbumDownloadResult (destination folder + which tracks
+    succeeded/failed). `dest_root` lets callers (e.g. a web backend) redirect
+    output to a per-job temp directory instead of the hardcoded
+    BASE_MUSIC_PATH. `progress_callback` lets callers observe progress
+    structurally instead of scraping stdout.
+
+    Tracks are downloaded into a private staging directory first and only
+    promoted to the real "<Artist> - <Album>" folder if at least one
+    succeeded - so a totally-failed album (nothing found on any source)
+    raises AlbumDownloadError instead of leaving a stray folder behind with
+    nothing but a cover image in it.
     """
     sp = get_spotify_client()
 
@@ -479,61 +640,119 @@ def download_album(
 
     folder_name = sanitize_filename(f"{real_artist} - {real_album_name}")
     dest_folder = os.path.join(dest_root, folder_name)
-    os.makedirs(dest_folder, exist_ok=True)
+    # Reported now (the final destination is already decided), even though
+    # nothing exists on disk at this path yet - see the staging/promotion
+    # step below.
     progress_callback("output_folder", dest_folder=dest_folder)
 
-    cover_path = download_cover_image(cover_url, dest_folder)
+    os.makedirs(dest_root, exist_ok=True)
+    # Staged as a sibling of dest_folder (same volume => cheap os.rename to
+    # promote) rather than the system temp dir, so a leftover from a hard
+    # crash shows up right next to where the user is already looking instead
+    # of being buried in %TEMP%. The dot-prefix + tempfile's random suffix
+    # keeps it short (mitigates Windows MAX_PATH) and unmistakably not a real
+    # album folder. Known, accepted limitation: a hard-killed process
+    # (kill -9, power loss) skips the except-block cleanup below and leaves
+    # this orphaned with no automatic cleanup - not solved here, same
+    # category as this repo's other accepted gaps (see web/CLAUDE.md).
+    staging_dir = tempfile.mkdtemp(prefix=".staging-", dir=dest_root)
 
-    total = len(tracklist)
-    for track in tracklist:
-        track_num = track["track_number"]
-        title = track["title"]
-        safe_title = sanitize_filename(title)
-        filename = f"{track_num:02d} {safe_title}.mp3"
-        file_path = os.path.join(dest_folder, filename)
+    try:
+        cover_path = download_cover_image(cover_url, staging_dir)
 
-        duration_ms = track.get("duration_ms")
-        expected_duration_sec = duration_ms / 1000 if duration_ms else None
+        succeeded_titles: list[str] = []
+        failed_tracks: list[dict] = []
 
-        progress_callback("track_start", track_number=track_num, total=total, title=title)
-        try:
-            download_track_audio(real_artist, title, expected_duration_sec, file_path)
-        except Exception as exc:
-            progress_callback(
-                "track_done", track_number=track_num, title=title, filename=filename,
-                success=False, error=f"Failed to download '{title}': {exc}",
-            )
-            continue
+        total = len(tracklist)
+        for track in tracklist:
+            track_num = track["track_number"]
+            title = track["title"]
+            safe_title = sanitize_filename(title)
+            filename = f"{track_num:02d} {safe_title}.mp3"
+            file_path = os.path.join(staging_dir, filename)
 
-        if not os.path.exists(file_path):
-            progress_callback(
-                "track_done", track_number=track_num, title=title, filename=filename,
-                success=False, error=f"Expected file not found after download: {file_path}",
-            )
-            continue
+            duration_ms = track.get("duration_ms")
+            expected_duration_sec = duration_ms / 1000 if duration_ms else None
 
-        try:
-            tag_mp3(
-                file_path,
-                title,
-                real_artist,
-                real_album_name,
-                track_num,
-                track["total_tracks"],
-                cover_path,
-            )
-            progress_callback(
-                "track_done", track_number=track_num, title=title, filename=filename,
-                success=True, error=None,
-            )
-        except Exception as exc:
-            progress_callback(
-                "track_done", track_number=track_num, title=title, filename=filename,
-                success=False, error=f"Failed to tag '{filename}': {exc}",
-            )
+            progress_callback("track_start", track_number=track_num, total=total, title=title)
+            try:
+                download_track_audio(real_artist, title, expected_duration_sec, file_path)
+            except Exception as exc:
+                reason = f"Failed to download '{title}': {exc}"
+                failed_tracks.append({"title": title, "reason": reason})
+                progress_callback(
+                    "track_done", track_number=track_num, title=title, filename=filename,
+                    success=False, error=reason,
+                )
+                continue
 
-    progress_callback("done", artist=real_artist, album=real_album_name, dest_folder=dest_folder)
-    return dest_folder
+            if not os.path.exists(file_path):
+                reason = f"Expected file not found after download: {file_path}"
+                failed_tracks.append({"title": title, "reason": reason})
+                progress_callback(
+                    "track_done", track_number=track_num, title=title, filename=filename,
+                    success=False, error=reason,
+                )
+                continue
+
+            try:
+                tag_mp3(
+                    file_path,
+                    title,
+                    real_artist,
+                    real_album_name,
+                    track_num,
+                    track["total_tracks"],
+                    cover_path,
+                )
+                succeeded_titles.append(title)
+                progress_callback(
+                    "track_done", track_number=track_num, title=title, filename=filename,
+                    success=True, error=None,
+                )
+            except Exception as exc:
+                reason = f"Failed to tag '{filename}': {exc}"
+                failed_tracks.append({"title": title, "reason": reason})
+                progress_callback(
+                    "track_done", track_number=track_num, title=title, filename=filename,
+                    success=False, error=reason,
+                )
+
+        # The cover was only ever needed for embedding into each track's own
+        # tags (see tag_mp3 above) - no reason to also leave a redundant
+        # standalone copy sitting in the delivered folder.
+        if cover_path and os.path.exists(cover_path):
+            os.remove(cover_path)
+
+        if not succeeded_titles:
+            raise AlbumDownloadError(real_artist, real_album_name, failed_tracks)
+
+        if os.path.isdir(dest_folder):
+            # Re-running for a previously-partial or already-downloaded
+            # album: merge in rather than clobbering the whole folder.
+            # Same-named files (e.g. re-downloading a track that failed last
+            # time) are overwritten, matching today's always-overwrite-in-place
+            # behavior.
+            shutil.copytree(staging_dir, dest_folder, dirs_exist_ok=True)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        else:
+            try:
+                os.rename(staging_dir, dest_folder)
+            except OSError:
+                # Defensive only - staging_dir and dest_folder share
+                # dest_root's volume by construction, so this shouldn't
+                # actually trigger.
+                shutil.copytree(staging_dir, dest_folder, dirs_exist_ok=True)
+                shutil.rmtree(staging_dir, ignore_errors=True)
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+
+    progress_callback(
+        "done", artist=real_artist, album=real_album_name, dest_folder=dest_folder,
+        succeeded_titles=succeeded_titles, failed_tracks=failed_tracks,
+    )
+    return AlbumDownloadResult(dest_folder, real_artist, real_album_name, succeeded_titles, failed_tracks)
 
 
 def download_from_queue_file(queue_path: str) -> None:
@@ -544,7 +763,14 @@ def download_from_queue_file(queue_path: str) -> None:
     print(f"[Info] Loaded {len(queue)} album(s) from '{queue_path}'.")
     for entry in queue:
         print(f"\n[Info] Downloading '{entry['album']}' by '{entry['artist']}'...")
-        download_album(entry["artist"], entry["album"])
+        try:
+            download_album(entry["artist"], entry["album"])
+        except (AlbumDownloadError, SpotifyLookupError) as exc:
+            # One album failing entirely (nothing found on any source, or
+            # missing from Spotify/MusicBrainz both) shouldn't abort the rest
+            # of the batch.
+            print(f"[Error] {exc}")
+            continue
 
 
 if __name__ == "__main__":
@@ -561,6 +787,6 @@ if __name__ == "__main__":
                 sys.exit(1)
 
             download_album(artist_input, album_input)
-    except SpotifyLookupError as exc:
+    except (SpotifyLookupError, AlbumDownloadError) as exc:
         print(f"[Error] {exc}")
         sys.exit(1)

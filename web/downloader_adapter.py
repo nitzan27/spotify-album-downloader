@@ -48,12 +48,17 @@ def process_job(job: Job) -> None:
     lets web/jobs.py's worker loop auto-requeue it the same way a rate_limited
     scan job already does, rather than failing the whole download permanently
     on what's usually a transient, minutes-long condition.
+
+    AlbumDownloadError (every track failed on every source) is deliberately
+    NOT caught here - it propagates up to web/jobs.py's worker loop, whose
+    existing generic `except Exception` already does the right thing
+    (job.status = "error", job.error = str(exc)) with no extra code needed.
     """
     job_dir = _job_dir(job)
     os.makedirs(job_dir, exist_ok=True)
 
     try:
-        dest_folder = download_album(
+        result = download_album(
             job.artist,
             job.album,
             dest_root=job_dir,
@@ -65,13 +70,19 @@ def process_job(job: Job) -> None:
         job.status = "rate_limited"
         return
 
-    zip_base = dest_folder  # shutil.make_archive appends ".zip" itself
-    zip_path = shutil.make_archive(zip_base, "zip", root_dir=dest_folder)
+    zip_base = result.dest_folder  # shutil.make_archive appends ".zip" itself
+    zip_path = shutil.make_archive(zip_base, "zip", root_dir=result.dest_folder)
 
-    shutil.rmtree(dest_folder, ignore_errors=True)
+    shutil.rmtree(result.dest_folder, ignore_errors=True)
 
     job.zip_path = zip_path
-    job.progress = "Done."
+    job.failed_tracks = result.failed_tracks
+    job.total_tracks = len(result.succeeded_titles) + len(result.failed_tracks)
+    job.progress = (
+        "Done."
+        if not result.failed_tracks
+        else f"Done, but {len(result.failed_tracks)} of {job.total_tracks} track(s) could not be downloaded."
+    )
 
 
 def remove_job_files(job: Job) -> None:

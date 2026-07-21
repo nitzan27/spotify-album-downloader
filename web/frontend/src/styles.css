@@ -580,6 +580,13 @@ a.download:hover {
   overflow-wrap: break-word;
 }
 
+.job-status-warning {
+  color: var(--warning);
+  font-size: 0.8rem;
+  max-width: 16rem;
+  overflow-wrap: break-word;
+}
+
 .job-row button.secondary {
   padding: 0.35rem 0.85rem;
   font-size: 0.75rem;

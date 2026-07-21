@@ -52,6 +52,12 @@ class Job:
     artist: Optional[str] = None
     album: Optional[str] = None
     zip_path: Optional[str] = None
+    # Populated only once status == "done"; empty (not None) means every
+    # track succeeded, so the frontend can check `.failed_tracks.length` with
+    # no null-check. Deliberately doesn't get its own "partial" status - a
+    # download with some failed tracks is still a completed, deliverable job.
+    failed_tracks: list[dict] = field(default_factory=list)  # [{"title": str, "reason": str}]
+    total_tracks: Optional[int] = None
 
     # scan-only
     session_id: Optional[str] = None

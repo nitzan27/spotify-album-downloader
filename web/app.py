@@ -256,8 +256,17 @@ def job_status(request: Request, job_id: str):
             "error": job.error,
             "results": job.results,
             "will_auto_retry": will_auto_retry,
+            "failed_tracks": job.failed_tracks,
+            "total_tracks": job.total_tracks,
         }
-    return {"status": job.status, "progress": job.progress, "error": job.error, "will_auto_retry": will_auto_retry}
+    return {
+        "status": job.status,
+        "progress": job.progress,
+        "error": job.error,
+        "will_auto_retry": will_auto_retry,
+        "failed_tracks": job.failed_tracks,
+        "total_tracks": job.total_tracks,
+    }
 
 
 @router.get("/download/{job_id}")

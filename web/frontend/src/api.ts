@@ -31,6 +31,11 @@ export interface MissingAlbumResult {
   missing_titles: string[];
 }
 
+export interface FailedTrack {
+  title: string;
+  reason: string;
+}
+
 export interface JobStatusResponse {
   status: "queued" | "running" | "done" | "error" | "rate_limited";
   progress: string;
@@ -42,6 +47,12 @@ export interface JobStatusResponse {
   // self-resolves to "error" once retries are exhausted, so this is
   // informational only there (the frontend just keeps polling regardless).
   will_auto_retry?: boolean;
+  // Download jobs only: non-empty only when status is "done" but some
+  // tracks couldn't be found on any source - the job still delivers a zip of
+  // whatever succeeded. Always [] for scan jobs.
+  failed_tracks?: FailedTrack[];
+  // Download jobs only: total tracks attempted; null for scan jobs.
+  total_tracks?: number | null;
 }
 
 /**

@@ -77,6 +77,8 @@ from album_downloader import (
     BASE_MUSIC_PATH,
     SPOTIFY_CLIENT_ID,
     SPOTIFY_CLIENT_SECRET,
+    AlbumDownloadError,
+    SpotifyLookupError,
     download_album,
     sanitize_filename,
 )
@@ -558,7 +560,11 @@ def sync_missing_region_locked_tracks(market: str = DEFAULT_MARKET, auto_downloa
     if auto_download:
         for entry in sync_queue:
             print(f"\n[Info] Downloading '{entry['album']}' by '{entry['artist']}'...")
-            download_album(entry["artist"], entry["album"])
+            try:
+                download_album(entry["artist"], entry["album"])
+            except (AlbumDownloadError, SpotifyLookupError) as exc:
+                print(f"[Error] {exc}")
+                continue
 
     return sync_queue
 

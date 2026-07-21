@@ -119,6 +119,17 @@ function TrackedJobRow({
   return (
     <div className="job-row">
       <span className="job-label">{job.label}</span>
+      {status?.status === 'done' && status.failed_tracks && status.failed_tracks.length > 0 && (
+        <span
+          className="job-status-warning"
+          title={status.failed_tracks.map((t) => `${t.title}: ${t.reason}`).join('\n')}
+        >
+          {status.total_tracks
+            ? `${status.total_tracks - status.failed_tracks.length}/${status.total_tracks} tracks — missing: `
+            : 'Missing: '}
+          {status.failed_tracks.map((t) => t.title).join(', ')}
+        </span>
+      )}
       {isInFlight && (
         <span className="job-status-text muted">
           {status?.progress || 'Queuing...'}
