@@ -110,6 +110,57 @@ def pot_status():
         return {**ping_result, "token_generation": "failed", "error": str(exc)}
 
 
+@app.get("/debug/youtube-test")
+def youtube_test():
+    """Diagnostic only - runs a real extraction attempt (no download, just
+    metadata/format resolution) against a known-public video using the exact
+    extractor_args album_downloader.py's YouTube source uses, with full
+    verbose logging captured and returned. Added because production ydl_opts
+    runs quiet=True/no_warnings=True (so real failures never show *why*
+    beyond the final error), and /debug/pot-status alone proved the sidecar
+    can mint a token while YouTube downloads kept failing anyway - this is
+    for seeing exactly which step fails and what yt-dlp says about it,
+    without SSH access to the Render container.
+    """
+    import album_downloader as ad
+    import yt_dlp
+
+    youtube_source = next(s for s in ad._AUDIO_SOURCES if s["label"] == "YouTube")
+    log_lines: list[str] = []
+
+    class _CaptureLogger:
+        def debug(self, msg):
+            log_lines.append(f"DEBUG: {msg}")
+
+        def info(self, msg):
+            log_lines.append(f"INFO: {msg}")
+
+        def warning(self, msg):
+            log_lines.append(f"WARNING: {msg}")
+
+        def error(self, msg):
+            log_lines.append(f"ERROR: {msg}")
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "simulate": True,
+        "quiet": True,
+        "no_warnings": False,
+        "logger": _CaptureLogger(),
+        "extractor_args": youtube_source["extractor_args"],
+        "js_runtimes": {"node": {}},
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ", download=False)
+        result = "success"
+    except Exception as exc:
+        result = f"failed: {exc}"
+
+    return {"result": result, "log": log_lines}
+
+
 router = APIRouter()
 
 
