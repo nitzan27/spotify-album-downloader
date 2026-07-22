@@ -456,17 +456,24 @@ _AUDIO_SOURCES = [
             # IPs (e.g. cloud hosts) than from residential ones. The Android/iOS
             # client bypass alone stopped being reliable as of mid-2026 - YouTube
             # started requiring a proof-of-origin (PO) token even from those
-            # clients. The bgutil-ytdlp-pot-provider package (requirements.txt)
+            # clients too. The bgutil-ytdlp-pot-provider package (requirements.txt)
             # registers itself with yt-dlp automatically and fetches a token from
             # a sidecar server at 127.0.0.1:4416 (started by docker/start.sh in
             # the deployed container - see the Dockerfile's bgutil-build stage)
-            # with no YouTube account or manually exported cookies needed. This
-            # is still cat-and-mouse: if it stops working, check
-            # https://github.com/Brainicism/bgutil-ytdlp-pot-provider for a
-            # newer release tag to bump the Dockerfile's pinned version to.
-            # Locally (no sidecar running) this is a harmless no-op - the plugin
-            # just fails to reach the server and yt-dlp proceeds without a token.
-            "youtube": {"player_client": ["android", "ios", "web"]},
+            # with no YouTube account or manually exported cookies needed.
+            # IMPORTANT: bgutil implements BotGuard, which only mints a
+            # *web*-client PO token - a PO token from one client can't be used
+            # by another (confirmed via yt-dlp's own PO Token Guide: Android
+            # needs a DroidGuard token, iOS needs iOSGuard, neither of which
+            # bgutil provides). Confirmed live on Render: with android/ios
+            # listed ahead of web, every single track failed with "Sign in to
+            # confirm you're not a bot" even though the sidecar was up and
+            # successfully minting tokens (checked via /debug/pot-status in
+            # web/app.py) - the token just couldn't help the client types
+            # being tried. player_client is "web" only for exactly this
+            # reason; do not add android/ios back without also adding a token
+            # provider for those specific client types.
+            "youtube": {"player_client": ["web"]},
             "youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]},
         },
     },
@@ -531,6 +538,20 @@ def _download_from_source(
         "quiet": True,
         "no_warnings": True,
         "extractor_args": source["extractor_args"],
+        # YouTube's web client format URLs are signature/n-parameter
+        # obfuscated; solving that now requires both a JS runtime (node,
+        # already installed for the bgutil sidecar - see the Dockerfile) and
+        # yt-dlp's actual challenge-solving code, which yt-dlp externalized
+        # into a separate "EJS" component. The yt-dlp-ejs pip package
+        # (requirements.txt) bundles that locally so it doesn't need to be
+        # fetched at runtime (the alternative, --remote-components ejs:github,
+        # would mean fetching third-party code from GitHub on every cold
+        # start - less reproducible, an extra runtime dependency on GitHub
+        # being reachable). Harmless no-op for SoundCloud/Mail.ru (neither
+        # needs JS challenge-solving) and degrades to the same warning as
+        # before this existed on a machine with no Node installed (e.g. the
+        # CLI run outside Docker) - it doesn't hard-fail either way.
+        "js_runtimes": {"node": {}},
     }
 
     try:
