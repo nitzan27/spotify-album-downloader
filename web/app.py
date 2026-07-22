@@ -111,16 +111,20 @@ def pot_status():
 
 
 @app.get("/debug/youtube-test")
-def youtube_test():
+def youtube_test(video_id: str = "dQw4w9WgXcQ"):
     """Diagnostic only - runs a real extraction attempt (no download, just
-    metadata/format resolution) against a known-public video using the exact
-    extractor_args album_downloader.py's YouTube source uses, with full
-    verbose logging captured and returned. Added because production ydl_opts
-    runs quiet=True/no_warnings=True (so real failures never show *why*
-    beyond the final error), and /debug/pot-status alone proved the sidecar
-    can mint a token while YouTube downloads kept failing anyway - this is
-    for seeing exactly which step fails and what yt-dlp says about it,
-    without SSH access to the Render container.
+    metadata/format resolution) against a given video (default: a famous,
+    known-public one) using the exact extractor_args album_downloader.py's
+    YouTube source uses, with full verbose logging captured and returned.
+    Added because production ydl_opts runs quiet=True/no_warnings=True (so
+    real failures never show *why* beyond the final error), and
+    /debug/pot-status alone proved the sidecar can mint a token while
+    YouTube downloads kept failing anyway - this is for seeing exactly which
+    step fails and what yt-dlp says about it, without SSH access to the
+    Render container. Pass ?video_id=... to test one of the specific ids
+    that actually failed in a real album job's failed_tracks reasons -
+    default dQw4w9WgXcQ succeeding doesn't prove every video does; some
+    failures turned out to be per-video, not systemic.
     """
     import album_downloader as ad
     import yt_dlp
@@ -153,12 +157,12 @@ def youtube_test():
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.extract_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ", download=False)
+            ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
         result = "success"
     except Exception as exc:
         result = f"failed: {exc}"
 
-    return {"result": result, "log": log_lines}
+    return {"video_id": video_id, "result": result, "log": log_lines}
 
 
 router = APIRouter()
