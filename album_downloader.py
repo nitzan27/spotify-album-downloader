@@ -134,9 +134,10 @@ def _default_progress_callback(event: str, **data) -> None:
             for failed in failed_tracks:
                 print(f"    - {failed['title']}: {failed['reason']}")
         if data.get("cookies_stale"):
+            reason = "is invalid" if _youtube_cookies_configured_but_invalid() else "appears to have expired"
             print(
                 f"[Warning] Your YouTube cookies.txt (${YOUTUBE_COOKIES_PATH_ENV_VAR}) "
-                "appears to have expired - re-export needed."
+                f"{reason} - re-export needed."
             )
 
 
@@ -386,7 +387,11 @@ class AlbumDownloadError(Exception):
         message = f"Could not download any tracks for '{album}' by '{artist}' (0/{total} succeeded)."
         self.cookies_stale = _cookies_stale(failed_tracks)
         if self.cookies_stale:
-            message += " Your YouTube cookies.txt appears to have expired - re-export needed."
+            message += (
+                " Your YouTube cookies.txt is either invalid or has expired - re-export needed."
+                if _youtube_cookies_configured_but_invalid()
+                else " Your YouTube cookies.txt appears to have expired - re-export needed."
+            )
         super().__init__(message)
         self.artist = artist
         self.album = album
@@ -411,20 +416,57 @@ class AlbumDownloadResult:
     cookies_stale: bool = False
 
 
+def _is_netscape_cookies_file(path: str) -> bool:
+    """Sanity-check the file's actual *content*, not just that it exists.
+
+    Confirmed live: a malformed cookies.txt (wrong export format, a partial/
+    corrupted upload, etc.) makes yt-dlp raise "does not look like a
+    Netscape format cookies file" - and unlike a missing file (which
+    degrades to "proceed without cookies" harmlessly), this fires on every
+    single YouTube attempt, hard-breaking YouTube entirely for every album
+    instead of just not helping. Validating the header before ever handing
+    the path to yt-dlp is what actually prevents that - a malformed file
+    now degrades the same way a missing one always has.
+    """
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            first_line = f.readline()
+    except OSError:
+        return False
+    return first_line.startswith("# Netscape HTTP Cookie File") or first_line.startswith("# HTTP Cookie File")
+
+
 def _cookies_path_from_env(env_var: str) -> Optional[str]:
     path = os.environ.get(env_var)
-    return path if path and os.path.exists(path) else None
+    if not path or not os.path.exists(path) or not _is_netscape_cookies_file(path):
+        return None
+    return path
 
 
 def _youtube_cookies_path() -> Optional[str]:
     return _cookies_path_from_env(YOUTUBE_COOKIES_PATH_ENV_VAR)
 
 
+def _youtube_cookies_configured_but_invalid() -> bool:
+    """True when YOUTUBE_COOKIES_PATH points at a file that exists but isn't
+    valid Netscape-format cookies - distinct from "not configured at all",
+    so a friend/maintainer gets told about it (via cookies_stale, same
+    banner/remedy: re-export) instead of it silently doing nothing."""
+    path = os.environ.get(YOUTUBE_COOKIES_PATH_ENV_VAR)
+    return bool(path) and os.path.exists(path) and not _is_netscape_cookies_file(path)
+
+
 _YOUTUBE_BOT_CHECK_SIGNATURE = "Sign in to confirm"
 
 
 def _cookies_stale(failed_tracks: list[dict]) -> bool:
-    """See AlbumDownloadResult.cookies_stale."""
+    """See AlbumDownloadResult.cookies_stale. Covers two distinct cases that
+    share the same remedy (re-export cookies.txt): a session that used to
+    work but expired (detected via the bot-check signature reappearing
+    despite cookies being configured), and a configured file that was never
+    valid in the first place (wrong format, corrupted upload)."""
+    if _youtube_cookies_configured_but_invalid():
+        return True
     if _youtube_cookies_path() is None:
         return False
     return any(_YOUTUBE_BOT_CHECK_SIGNATURE in t["reason"] for t in failed_tracks)

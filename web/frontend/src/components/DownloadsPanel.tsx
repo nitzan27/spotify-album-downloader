@@ -125,7 +125,7 @@ function TrackedJobRow({
         <span className="job-label">{job.label}</span>
         {status?.status === 'done' && status.cookies_stale && (
           <span className="job-status-error">
-            ⚠ YouTube cookies have expired — re-export needed to keep YouTube downloads working.
+            ⚠ YouTube cookies are invalid or expired — re-export needed to keep YouTube downloads working.
           </span>
         )}
         {status?.status === 'done' && status.failed_tracks && status.failed_tracks.length > 0 && (
