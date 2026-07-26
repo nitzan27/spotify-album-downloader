@@ -17,6 +17,23 @@ const POLL_INTERVAL_MS = 2000
 const MAX_POLL_RETRIES = 5
 const MAX_POLL_RETRY_DELAY_MS = 15000
 
+// Mirrors ConnectAccount's Avatar component: falls back to a plain
+// initial-letter tile if coverUrl is null (an older cached scan entry, or a
+// genuinely missing Spotify image) or the image 404s.
+function AlbumCover({ coverUrl, artist }: { coverUrl: string | null; artist: string }) {
+  const [imageFailed, setImageFailed] = useState(false)
+
+  if (coverUrl && !imageFailed) {
+    return <img className="album-cover" src={coverUrl} alt="" onError={() => setImageFailed(true)} />
+  }
+
+  return (
+    <span className="album-cover album-cover-placeholder" aria-hidden="true">
+      {artist.charAt(0).toUpperCase()}
+    </span>
+  )
+}
+
 interface Props {
   onJobsCreated: (jobs: TrackedJob[]) => void
   existingAlbumFolders: Set<string> | null
@@ -335,6 +352,7 @@ export function ScanPanel({
                           )}
                         </span>
                       )}
+                      <AlbumCover coverUrl={result.cover_url} artist={result.artist} />
                       <span className="result-text">
                         <div className="result-title">
                           {result.artist} - {result.album}

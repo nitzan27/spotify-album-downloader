@@ -514,6 +514,26 @@ a.download:hover {
   }
 }
 
+.album-cover {
+  flex-shrink: 0;
+  align-self: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.album-cover-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .result-text {
   flex: 1;
   min-width: 0;

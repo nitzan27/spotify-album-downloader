@@ -153,7 +153,9 @@ def _album_meta(album: dict) -> dict:
     scan with "list index out of range" before this guard was added."""
     artists = album.get("artists") or []
     artist_name = artists[0]["name"] if artists else "Unknown Artist"
-    return {"artist": artist_name, "album": album.get("name") or "Unknown Album"}
+    images = album.get("images") or []
+    cover_url = images[0]["url"] if images else None
+    return {"artist": artist_name, "album": album.get("name") or "Unknown Album", "cover_url": cover_url}
 
 
 def _gather_saved_albums(sp: spotipy.Spotify, cache: dict, progress_cb) -> set[str]:
@@ -439,7 +441,7 @@ def _build_sync_queue(cache: dict, album_ids) -> list[dict]:
         entry = cache["album_lock_status"].get(album_id)
         if not entry or not entry["locked_tracks"]:
             continue
-        meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown"})
+        meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown", "cover_url": None})
         artist, album_name = meta["artist"], meta["album"]
         dest_folder = os.path.join(BASE_MUSIC_PATH, sanitize_filename(f"{artist} - {album_name}"))
         missing_titles = [
@@ -450,7 +452,10 @@ def _build_sync_queue(cache: dict, album_ids) -> list[dict]:
             )
         ]
         if missing_titles:
-            sync_queue.append({"artist": artist, "album": album_name, "missing_titles": missing_titles})
+            sync_queue.append({
+                "artist": artist, "album": album_name, "missing_titles": missing_titles,
+                "cover_url": meta.get("cover_url"),
+            })
     return sync_queue
 
 
@@ -463,7 +468,7 @@ def scan_region_locked_albums(sp: spotipy.Spotify, market: str = DEFAULT_MARKET)
     re-run of an already-scanned, mostly-unchanged library costs very little.
 
     Returns a sync queue: a list of
-        {"artist": str, "album": str, "missing_titles": list[str]}
+        {"artist": str, "album": str, "missing_titles": list[str], "cover_url": str | None}
     one entry per album that has at least one region-locked track missing
     from BASE_MUSIC_PATH. Each entry unpacks directly into download_album():
         download_album(entry["artist"], entry["album"])
@@ -497,7 +502,7 @@ def scan_region_locked_albums(sp: spotipy.Spotify, market: str = DEFAULT_MARKET)
             locked_by_album = _locked_keys_for_batch(sp, batch_ids, market)
 
             for album_id in batch_ids:
-                meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown"})
+                meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown", "cover_url": None})
                 checked += 1
                 print(
                     f"[Scan] ({checked}/{len(all_album_ids)}) Checked '{meta['artist']} - {meta['album']}'...",

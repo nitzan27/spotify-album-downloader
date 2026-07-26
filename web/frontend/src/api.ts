@@ -29,6 +29,11 @@ export interface MissingAlbumResult {
   artist: string;
   album: string;
   missing_titles: string[];
+  // Spotify's own cover art URL, straight from the album's `images[0]`.
+  // Null for albums whose scan-cache entry predates this field (cache
+  // entries aren't retroactively backfilled - see sync_missing.py's
+  // _album_meta()) or for a genuinely missing/empty `images` array.
+  cover_url: string | null;
 }
 
 export interface SucceededTrack {

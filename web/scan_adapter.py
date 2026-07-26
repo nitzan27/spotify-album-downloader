@@ -98,9 +98,12 @@ def _build_sync_queue(cache: dict, locked_tracks_by_album: dict, album_ids) -> l
         locked_tracks = locked_tracks_by_album.get(album_id)
         if not locked_tracks:
             continue
-        meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown"})
+        meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown", "cover_url": None})
         missing_titles = [track["name"] for track in locked_tracks]
-        sync_queue.append({"artist": meta["artist"], "album": meta["album"], "missing_titles": missing_titles})
+        sync_queue.append({
+            "artist": meta["artist"], "album": meta["album"], "missing_titles": missing_titles,
+            "cover_url": meta.get("cover_url"),
+        })
     return sync_queue
 
 
@@ -180,7 +183,7 @@ def process_scan_job(job: Job) -> None:
 
                 fresh_entries = {}
                 for album_id in batch_ids:
-                    meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown"})
+                    meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown", "cover_url": None})
                     checked += 1
                     job.progress = f"Checking {checked}/{total}: {meta['artist']} - {meta['album']}"
 
