@@ -8,3 +8,7 @@ sync_queue.json
 .spotify_scan_cache.json
 web/.web_scan_cache/
 .claude/settings.local.json
+
+# Real YouTube session credentials (see YOUTUBE_COOKIES_PATH in CLAUDE.md) -
+# never belongs in git regardless of where it's exported to locally.
+*cookies.txt

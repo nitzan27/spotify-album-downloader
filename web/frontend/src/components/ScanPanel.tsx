@@ -125,6 +125,17 @@ export function ScanPanel({
 
   const results: MissingAlbumResult[] | null = status?.results ?? null
 
+  // Alphabetical (artist, then album as a tiebreaker) rather than whatever
+  // order the scan happened to discover albums in. Sorts a list of original
+  // indices rather than `results` itself, since `selected` is a Set of
+  // indices into `results` - re-sorting `results` in place would silently
+  // scramble which album a given index actually refers to.
+  const sortedIndices = results
+    ? results
+        .map((_, i) => i)
+        .sort((a, b) => results[a].artist.localeCompare(results[b].artist) || results[a].album.localeCompare(results[b].album))
+    : []
+
   // If a download folder is (re-)chosen, an album finishes downloading, or an
   // album starts downloading (e.g. queued from a previous scan), drop any
   // now-unselectable albums from the selection.
@@ -261,7 +272,8 @@ export function ScanPanel({
                 </span>
               </div>
               <div className="result-list">
-                {results.map((result: MissingAlbumResult, i: number) => {
+                {sortedIndices.map((i: number) => {
+                  const result = results[i]
                   const already = isAlreadyDownloaded(result)
                   const downloading = isDownloading(result)
                   const locked = already || downloading
