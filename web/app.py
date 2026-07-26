@@ -289,6 +289,13 @@ def start_scan(request: Request, payload: ScanRequest):
     market = payload.market.strip().upper()
     if len(market) != 2 or not market.isalpha():
         raise HTTPException(status_code=400, detail="Market must be a 2-letter country code (e.g. US, IL).")
+    # Reuse an already in-flight scan for this session+market rather than
+    # queuing a duplicate that would just sit blocked behind it (see
+    # find_active_scan's docstring) - a page reload during a slow scan
+    # reattaches to the same job instead of starting a new one from scratch.
+    existing = jobs.find_active_scan(session.id, market)
+    if existing is not None:
+        return {"job_id": existing.id}
     job = jobs.create_scan_job(session.id, market)
     return {"job_id": job.id}
 

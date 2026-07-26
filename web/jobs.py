@@ -125,6 +125,32 @@ def create_scan_job(session_id: str, market: str, initial_api_call_count: int = 
     return job
 
 
+def find_active_scan(session_id: str, market: str) -> Optional[Job]:
+    """An in-flight (queued/running/rate_limited) scan job this session
+    already has for `market`, if any.
+
+    SCAN_WORKER_COUNT is 1, so a second scan job queued while the first is
+    still running just sits "queued" - progress stays "" (the Job dataclass
+    default) until it's actually running, which reads in the UI as a bare
+    spinner with no progress text for however long it waits its turn. That
+    happens for real: reloading the page during a slow scan and hitting
+    "Scan my library" again doesn't cancel the original job, it queues a
+    second one behind it. start_scan() calls this first and reuses the
+    existing job instead, so a reload reattaches to the same scan rather
+    than piling up a queue of jobs that silently block each other.
+    """
+    for job in JOBS.values():
+        if (
+            job.job_type == "scan"
+            and job.session_id == session_id
+            and job.market == market
+            and job.status in ("queued", "running", "rate_limited")
+            and not _is_expired(job)
+        ):
+            return job
+    return None
+
+
 def get_job(job_id: str) -> Optional[Job]:
     job = JOBS.get(job_id)
     if job is None or _is_expired(job):
