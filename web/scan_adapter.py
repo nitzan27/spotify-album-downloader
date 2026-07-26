@@ -92,19 +92,36 @@ def _wrap_call_counter(sp) -> dict:
 def _build_sync_queue(cache: dict, locked_tracks_by_album: dict, album_ids) -> list[dict]:
     """Like sync_missing._build_sync_queue, minus the local-file check - the
     server can't see any friend's local library, so every locked track found
-    is surfaced and the friend decides what they already have."""
-    sync_queue = []
+    is surfaced and the friend decides what they already have.
+
+    Merges by (artist, album) display name, same reasoning as
+    sync_missing._build_sync_queue: two different Spotify catalog ids can
+    share a display name (reissue/deluxe-edition/regional variant), which
+    would otherwise show up as visually duplicate rows in ScanPanel.
+    """
+    by_key: dict[tuple[str, str], dict] = {}
     for album_id in album_ids:
         locked_tracks = locked_tracks_by_album.get(album_id)
         if not locked_tracks:
             continue
         meta = cache["albums_meta"].get(album_id, {"artist": "Unknown", "album": "Unknown", "cover_url": None})
         missing_titles = [track["name"] for track in locked_tracks]
-        sync_queue.append({
-            "artist": meta["artist"], "album": meta["album"], "missing_titles": missing_titles,
-            "cover_url": meta.get("cover_url"),
-        })
-    return sync_queue
+
+        key = (meta["artist"], meta["album"])
+        existing = by_key.get(key)
+        if existing is None:
+            by_key[key] = {
+                "artist": meta["artist"], "album": meta["album"], "missing_titles": missing_titles,
+                "cover_url": meta.get("cover_url"),
+            }
+        else:
+            for title in missing_titles:
+                if title not in existing["missing_titles"]:
+                    existing["missing_titles"].append(title)
+            if existing["cover_url"] is None:
+                existing["cover_url"] = meta.get("cover_url")
+
+    return list(by_key.values())
 
 
 def _mark_rate_limited(job: Job, exc: SpotifyException, stage: str, cache: dict, cache_path: str) -> None:

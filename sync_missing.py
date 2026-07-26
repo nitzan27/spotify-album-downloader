@@ -435,8 +435,20 @@ def _build_sync_queue(cache: dict, album_ids) -> list[dict]:
     scan) means it works identically whether an album's lock-status came
     from this run or a previous one, and always reflects what's *currently*
     on disk even if nothing needed a fresh Spotify lookup this time.
+
+    Merges by (artist, album) display name rather than emitting one entry per
+    album_id: Spotify sometimes has more than one catalog id for what a user
+    sees as the same release (a reissue/deluxe-edition/regional variant with
+    an identical displayed name) - each such id is already deduplicated at
+    the id level (album_ids is a set), but two *different* ids sharing a
+    display name would otherwise show up as visually duplicate rows in the
+    UI. download_album() looks the album up by name at download time anyway,
+    not by whichever id flagged it, so merging every id's missing_titles
+    into one entry per display name loses nothing and matches what a friend
+    actually wants to see: one row per album they'd recognize, not one per
+    Spotify catalog quirk.
     """
-    sync_queue = []
+    by_key: dict[tuple[str, str], dict] = {}
     for album_id in album_ids:
         entry = cache["album_lock_status"].get(album_id)
         if not entry or not entry["locked_tracks"]:
@@ -451,12 +463,24 @@ def _build_sync_queue(cache: dict, album_ids) -> list[dict]:
                 os.path.join(dest_folder, f"{track['track_number']:02d} {sanitize_filename(track['name'])}.mp3")
             )
         ]
-        if missing_titles:
-            sync_queue.append({
+        if not missing_titles:
+            continue
+
+        key = (artist, album_name)
+        existing = by_key.get(key)
+        if existing is None:
+            by_key[key] = {
                 "artist": artist, "album": album_name, "missing_titles": missing_titles,
                 "cover_url": meta.get("cover_url"),
-            })
-    return sync_queue
+            }
+        else:
+            for title in missing_titles:
+                if title not in existing["missing_titles"]:
+                    existing["missing_titles"].append(title)
+            if existing["cover_url"] is None:
+                existing["cover_url"] = meta.get("cover_url")
+
+    return list(by_key.values())
 
 
 def scan_region_locked_albums(sp: spotipy.Spotify, market: str = DEFAULT_MARKET) -> list[dict]:

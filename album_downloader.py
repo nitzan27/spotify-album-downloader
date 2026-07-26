@@ -369,7 +369,7 @@ _DURATION_TOLERANCE_RATIO = 0.20
 
 class TrackNotFoundError(Exception):
     """Raised when no search result's duration plausibly matches the Spotify
-    track on any source (SoundCloud, then YouTube, then Mail.ru Music) - e.g. the track isn't
+    track on any source (YouTube, then SoundCloud, then Mail.ru Music) - e.g. the track isn't
     really uploaded as a standalone song, so the top hit is something
     unrelated (a mix, full album, etc.)."""
 
@@ -471,12 +471,14 @@ def _mailru_download_target(entry: dict) -> str:
     return entry["url"]
 
 
-# Tried in order for every track: SoundCloud, then YouTube, then Mail.ru
-# Music as a last resort. SoundCloud doesn't hit YouTube's bot-check at all,
-# and its uploads skew toward exactly the kind of independent/underground
-# tracks that tend to fail YouTube's duration match in the first place.
-# Mail.ru is tried last - it's the least clean integration (no bounded
-# search, see below) and the one most likely to host tracks with no
+# Tried in order for every track: YouTube first (primary source - broadest
+# catalog coverage), then SoundCloud, then Mail.ru Music as a last resort.
+# SoundCloud doesn't hit YouTube's bot-check at all, and its uploads skew
+# toward exactly the kind of independent/underground tracks that tend to
+# fail YouTube's duration match in the first place - it stays a strong
+# fallback for exactly the tracks YouTube can't find, even with YouTube tried
+# first. Mail.ru is tried last - it's the least clean integration (no
+# bounded search, see below) and the one most likely to host tracks with no
 # legitimate rights-holder relationship at all, so it's a fallback of last
 # resort rather than a peer of the other two. Each source's own ydl_opts
 # stays scoped to that source - e.g. YouTube's bot-check extractor_args (see
@@ -484,12 +486,6 @@ def _mailru_download_target(entry: dict) -> str:
 # scoping it out avoids a future reader wondering why a non-YouTube download
 # references a YouTube PO-token sidecar.
 _AUDIO_SOURCES = [
-    {
-        "label": "SoundCloud",
-        "build_search_query": lambda artist, title: f"scsearch{_SEARCH_CANDIDATES}:{artist} - {title}",
-        "download_target": _soundcloud_download_target,
-        "extractor_args": {},
-    },
     {
         "label": "YouTube",
         # "(Audio)" biases YouTube's search toward audio-only/lyric-video
@@ -527,6 +523,12 @@ _AUDIO_SOURCES = [
             "youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]},
         },
         "cookiefile_env_var": YOUTUBE_COOKIES_PATH_ENV_VAR,
+    },
+    {
+        "label": "SoundCloud",
+        "build_search_query": lambda artist, title: f"scsearch{_SEARCH_CANDIDATES}:{artist} - {title}",
+        "download_target": _soundcloud_download_target,
+        "extractor_args": {},
     },
     {
         "label": "Mail.ru Music",
@@ -626,7 +628,7 @@ def _download_from_source(
 def download_track_audio(
     artist: str, title: str, expected_duration_sec: Optional[float], file_path: str
 ) -> str:
-    """Try each source in _AUDIO_SOURCES (SoundCloud, then YouTube, then
+    """Try each source in _AUDIO_SOURCES (YouTube, then SoundCloud, then
     Mail.ru Music) in turn and download/convert the best match to mp3 at
     file_path. Returns the label of whichever source it actually came from
     (e.g. "SoundCloud") - callers that want to know where a track was found
