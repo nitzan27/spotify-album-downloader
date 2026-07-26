@@ -60,6 +60,15 @@ class Job:
     succeeded_tracks: list[dict] = field(default_factory=list)  # [{"title": str, "source": str}]
     failed_tracks: list[dict] = field(default_factory=list)  # [{"title": str, "reason": str}]
     total_tracks: Optional[int] = None
+    # True when a YOUTUBE_COOKIES_PATH is configured but still hit YouTube's
+    # bot-check anyway - see album_downloader.AlbumDownloadResult.cookies_stale.
+    # Also settable on a hard "error" job (a totally-failed album): the note
+    # is baked into AlbumDownloadError's own message in that case, since
+    # there's no AlbumDownloadResult to carry a separate field, so job.error
+    # already reads clearly either way - this flag exists for a "done" job
+    # (partial success) to render a dedicated banner instead of relying on
+    # a friend to notice the phrase inside one track's failure reason text.
+    cookies_stale: bool = False
 
     # scan-only
     session_id: Optional[str] = None

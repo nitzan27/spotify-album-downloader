@@ -364,6 +364,7 @@ def job_status(request: Request, job_id: str):
             "succeeded_tracks": job.succeeded_tracks,
             "failed_tracks": job.failed_tracks,
             "total_tracks": job.total_tracks,
+            "cookies_stale": job.cookies_stale,
         }
     return {
         "status": job.status,
@@ -373,6 +374,7 @@ def job_status(request: Request, job_id: str):
         "succeeded_tracks": job.succeeded_tracks,
         "failed_tracks": job.failed_tracks,
         "total_tracks": job.total_tracks,
+        "cookies_stale": job.cookies_stale,
     }
 
 

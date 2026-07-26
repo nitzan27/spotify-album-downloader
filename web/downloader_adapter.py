@@ -79,6 +79,7 @@ def process_job(job: Job) -> None:
     job.succeeded_tracks = result.succeeded_tracks
     job.failed_tracks = result.failed_tracks
     job.total_tracks = len(result.succeeded_tracks) + len(result.failed_tracks)
+    job.cookies_stale = result.cookies_stale
     job.progress = (
         "Done."
         if not result.failed_tracks

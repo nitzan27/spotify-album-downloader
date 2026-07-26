@@ -62,6 +62,11 @@ export interface JobStatusResponse {
   failed_tracks?: FailedTrack[];
   // Download jobs only: total tracks attempted; null for scan jobs.
   total_tracks?: number | null;
+  // Download jobs only: true when a YouTube cookies.txt is configured
+  // server-side but still hit the bot-check anyway - a signal the exported
+  // session has gone stale and needs re-exporting, not just an ordinary
+  // per-track failure. Always false for scan jobs.
+  cookies_stale?: boolean;
 }
 
 /**

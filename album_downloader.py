@@ -53,6 +53,20 @@ BASE_MUSIC_PATH = r"C:\Users\nitza\Music\spotify songs"
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
 
+# Optional: path to a Netscape-format cookies.txt exported from a real,
+# logged-in YouTube session (e.g. via the "Get cookies.txt LOCALLY" browser
+# extension). Entirely optional - unset by default, and every YouTube
+# request just proceeds without cookies exactly as before if this isn't
+# configured or the file doesn't exist. This is a deliberately manual,
+# one-time-per-refresh step, not an automated login: scripting an actual
+# Google sign-in (e.g. via Selenium) was considered and rejected - Google's
+# login flow actively detects and blocks browser automation, and an
+# automated-login pattern risks the account itself being locked, which a
+# plain exported session cookie doesn't. See the YOUTUBE_COOKIES_STALE note
+# on AlbumDownloadResult for how a stale/expired cookie file is surfaced
+# once it stops working, rather than failing silently forever.
+YOUTUBE_COOKIES_PATH_ENV_VAR = "YOUTUBE_COOKIES_PATH"
+
 
 class SpotifyLookupError(Exception):
     """Raised for user-facing Spotify lookup failures (missing creds, no match, etc.).
@@ -119,6 +133,11 @@ def _default_progress_callback(event: str, **data) -> None:
             print(f"[Warning] {len(failed_tracks)} track(s) could not be downloaded:")
             for failed in failed_tracks:
                 print(f"    - {failed['title']}: {failed['reason']}")
+        if data.get("cookies_stale"):
+            print(
+                f"[Warning] Your YouTube cookies.txt (${YOUTUBE_COOKIES_PATH_ENV_VAR}) "
+                "appears to have expired - re-export needed."
+            )
 
 
 _WINDOWS_RESERVED_NAMES = {
@@ -364,9 +383,11 @@ class AlbumDownloadError(Exception):
 
     def __init__(self, artist: str, album: str, failed_tracks: list[dict]):
         total = len(failed_tracks)
-        super().__init__(
-            f"Could not download any tracks for '{album}' by '{artist}' (0/{total} succeeded)."
-        )
+        message = f"Could not download any tracks for '{album}' by '{artist}' (0/{total} succeeded)."
+        self.cookies_stale = _cookies_stale(failed_tracks)
+        if self.cookies_stale:
+            message += " Your YouTube cookies.txt appears to have expired - re-export needed."
+        super().__init__(message)
         self.artist = artist
         self.album = album
         self.failed_tracks = failed_tracks
@@ -382,6 +403,31 @@ class AlbumDownloadResult:
     album: str
     succeeded_tracks: list[dict]  # [{"title": str, "source": str}, ...]
     failed_tracks: list[dict]  # [{"title": str, "reason": str}, ...]
+    # True when YOUTUBE_COOKIES_PATH is configured but at least one track
+    # still hit YouTube's bot-check anyway - the one error a genuinely valid
+    # session cookie should never produce, so seeing it despite cookies
+    # being configured is a reliable "the cookie file has gone stale"
+    # signal, not just an ordinary per-track failure. See _cookies_stale().
+    cookies_stale: bool = False
+
+
+def _cookies_path_from_env(env_var: str) -> Optional[str]:
+    path = os.environ.get(env_var)
+    return path if path and os.path.exists(path) else None
+
+
+def _youtube_cookies_path() -> Optional[str]:
+    return _cookies_path_from_env(YOUTUBE_COOKIES_PATH_ENV_VAR)
+
+
+_YOUTUBE_BOT_CHECK_SIGNATURE = "Sign in to confirm"
+
+
+def _cookies_stale(failed_tracks: list[dict]) -> bool:
+    """See AlbumDownloadResult.cookies_stale."""
+    if _youtube_cookies_path() is None:
+        return False
+    return any(_YOUTUBE_BOT_CHECK_SIGNATURE in t["reason"] for t in failed_tracks)
 
 
 def _pick_best_duration_match(entries: list[dict], expected_duration_sec: float) -> Optional[dict]:
@@ -460,7 +506,11 @@ _AUDIO_SOURCES = [
             # registers itself with yt-dlp automatically and fetches a token from
             # a sidecar server at 127.0.0.1:4416 (started by docker/start.sh in
             # the deployed container - see the Dockerfile's bgutil-build stage)
-            # with no YouTube account or manually exported cookies needed.
+            # with no YouTube account or manually exported cookies needed - this
+            # alone still isn't enough for every video from a datacenter IP,
+            # though (confirmed live: works for extremely popular/canonical
+            # videos, still bot-checked for ordinary ones) - see
+            # YOUTUBE_COOKIES_PATH_ENV_VAR above for the (optional) real fix.
             # IMPORTANT: bgutil implements BotGuard, which only mints a
             # *web*-client PO token - a PO token from one client can't be used
             # by another (confirmed via yt-dlp's own PO Token Guide: Android
@@ -476,6 +526,7 @@ _AUDIO_SOURCES = [
             "youtube": {"player_client": ["web"]},
             "youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]},
         },
+        "cookiefile_env_var": YOUTUBE_COOKIES_PATH_ENV_VAR,
     },
     {
         "label": "Mail.ru Music",
@@ -538,6 +589,9 @@ def _download_from_source(
         "quiet": True,
         "no_warnings": True,
         "extractor_args": source["extractor_args"],
+        "cookiefile": (
+            _cookies_path_from_env(source["cookiefile_env_var"]) if source.get("cookiefile_env_var") else None
+        ),
         # YouTube's web client format URLs are signature/n-parameter
         # obfuscated; solving that now requires both a JS runtime (node,
         # already installed for the bgutil sidecar - see the Dockerfile) and
@@ -772,11 +826,14 @@ def download_album(
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise
 
+    cookies_stale = _cookies_stale(failed_tracks)
     progress_callback(
         "done", artist=real_artist, album=real_album_name, dest_folder=dest_folder,
-        succeeded_tracks=succeeded_tracks, failed_tracks=failed_tracks,
+        succeeded_tracks=succeeded_tracks, failed_tracks=failed_tracks, cookies_stale=cookies_stale,
     )
-    return AlbumDownloadResult(dest_folder, real_artist, real_album_name, succeeded_tracks, failed_tracks)
+    return AlbumDownloadResult(
+        dest_folder, real_artist, real_album_name, succeeded_tracks, failed_tracks, cookies_stale
+    )
 
 
 def download_from_queue_file(queue_path: str) -> None:

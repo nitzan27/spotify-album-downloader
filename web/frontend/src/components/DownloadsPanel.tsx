@@ -123,6 +123,11 @@ function TrackedJobRow({
     <div className="job-block">
       <div className="job-row">
         <span className="job-label">{job.label}</span>
+        {status?.status === 'done' && status.cookies_stale && (
+          <span className="job-status-error">
+            ⚠ YouTube cookies have expired — re-export needed to keep YouTube downloads working.
+          </span>
+        )}
         {status?.status === 'done' && status.failed_tracks && status.failed_tracks.length > 0 && (
           <span
             className="job-status-warning"
