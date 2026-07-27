@@ -157,7 +157,7 @@ def youtube_test(video_id: str = "dQw4w9WgXcQ"):
         "logger": _CaptureLogger(),
         "extractor_args": youtube_source["extractor_args"],
         "js_runtimes": {"node": {}},
-        "cookiefile": ad._cookies_path_from_env(youtube_source["cookiefile_env_var"]),
+        "cookiefile": ad._yt_dlp_cookiefile_path(youtube_source["cookiefile_env_var"]),
     }
 
     try:

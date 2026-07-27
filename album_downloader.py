@@ -470,6 +470,40 @@ def _youtube_cookies_path() -> Optional[str]:
     return _cookies_path_from_env(YOUTUBE_COOKIES_PATH_ENV_VAR)
 
 
+_writable_cookies_source: Optional[str] = None
+_writable_cookies_path: Optional[str] = None
+
+
+def _yt_dlp_cookiefile_path(env_var: str) -> Optional[str]:
+    """The path to actually hand yt-dlp as `cookiefile`, or None if not
+    configured/invalid (see _cookies_path_from_env).
+
+    yt-dlp writes its cookiejar back to `cookiefile` after use (e.g. to
+    persist a fresh session/consent cookie issued during YouTube's bot-check
+    flow) - but on Render, YOUTUBE_COOKIES_PATH points at a Secret File,
+    which is mounted read-only. Passing that path directly crashed every
+    single track with "[Errno 30] Read-only file system" the instant yt-dlp
+    tried to save (confirmed live via /debug/youtube-test) - a validly
+    uploaded cookies.txt was silently never working because of this. Copying
+    it once into a writable temp file, and reusing that same copy for every
+    track/job in this process's lifetime, lets yt-dlp read/update/save
+    freely (closer to how a real, evolving browser session behaves across
+    multiple requests, not further from it) without ever touching the
+    read-only secret mount. Re-copies only if the source path itself
+    changes, which in practice means never within one running process."""
+    global _writable_cookies_source, _writable_cookies_path
+    source_path = _cookies_path_from_env(env_var)
+    if source_path is None:
+        return None
+    if _writable_cookies_source != source_path:
+        fd, new_path = tempfile.mkstemp(suffix="_youtube_cookies.txt")
+        os.close(fd)
+        shutil.copyfile(source_path, new_path)
+        _writable_cookies_source = source_path
+        _writable_cookies_path = new_path
+    return _writable_cookies_path
+
+
 def _youtube_cookies_configured_but_invalid() -> bool:
     """True when YOUTUBE_COOKIES_PATH points at a file that exists but isn't
     valid Netscape-format cookies - distinct from "not configured at all",
@@ -760,7 +794,7 @@ def _download_from_source(
         "no_warnings": True,
         "extractor_args": source["extractor_args"],
         "cookiefile": (
-            _cookies_path_from_env(source["cookiefile_env_var"]) if source.get("cookiefile_env_var") else None
+            _yt_dlp_cookiefile_path(source["cookiefile_env_var"]) if source.get("cookiefile_env_var") else None
         ),
         # YouTube's web client format URLs are signature/n-parameter
         # obfuscated; solving that now requires both a JS runtime (node,
