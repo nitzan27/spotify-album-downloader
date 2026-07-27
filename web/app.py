@@ -124,7 +124,11 @@ def youtube_test(video_id: str = "dQw4w9WgXcQ"):
     Render container. Pass ?video_id=... to test one of the specific ids
     that actually failed in a real album job's failed_tracks reasons -
     default dQw4w9WgXcQ succeeding doesn't prove every video does; some
-    failures turned out to be per-video, not systemic.
+    failures turned out to be per-video, not systemic. Applies the same
+    cookiefile a real download would (if YOUTUBE_COOKIES_PATH is configured
+    and valid) - a prior version of this route omitted it, which meant a
+    "still bot-checked" result here couldn't distinguish "PO token alone
+    isn't enough" from "cookies would have fixed this but weren't tried."
     """
     import album_downloader as ad
     import yt_dlp
@@ -153,6 +157,7 @@ def youtube_test(video_id: str = "dQw4w9WgXcQ"):
         "logger": _CaptureLogger(),
         "extractor_args": youtube_source["extractor_args"],
         "js_runtimes": {"node": {}},
+        "cookiefile": ad._cookies_path_from_env(youtube_source["cookiefile_env_var"]),
     }
 
     try:
