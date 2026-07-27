@@ -22,6 +22,7 @@ Setup
    (or hardcode them in the CONFIGURATION section below).
 """
 
+import difflib
 import glob
 import json
 import os
@@ -359,20 +360,42 @@ def download_cover_image(cover_url: str, dest_folder: str) -> str | None:
     return cover_path
 
 
-_SEARCH_CANDIDATES = 5
+# Raised from 5 - title-filtering (see _filter_candidates_by_title) can now
+# remove several of the top results (official audio, official video, a live
+# performance, a lyric video, a remix - a realistic spread for a popular
+# track) before duration is even considered, so the candidate pool needs more
+# headroom than before. Cheap to raise: YouTube/SoundCloud's count is just
+# the search-prefix number (still one request), and Mail.ru already
+# over-fetches its entire result set server-side regardless (see
+# _search_entries) and only trims client-side, so this is free there.
+_SEARCH_CANDIDATES = 8
 # Widened from (15s, 12%) - that was rejecting plausible matches too often
 # (e.g. a slightly different edit/remaster a few seconds off). Still tight
 # enough to reject a genuinely wrong result (a mix, full album, etc.) - a
 # 3-minute track now tolerates +/-36s instead of +/-21.6s.
 _MIN_DURATION_TOLERANCE_SECONDS = 25
 _DURATION_TOLERANCE_RATIO = 0.20
+# Below _title_similarity()'s own docstring for the empirical grounding.
+# Deliberately loose (not e.g. 0.65+): this is a defense-in-depth layer, not
+# the sole gate - a wrong-song candidate that clears this still has to
+# separately clear the unchanged duration check to win, and requiring both to
+# coincidentally align is a much smaller intersection than either check
+# alone. Going stricter risks rejecting legitimately-but-messily-titled
+# correct results (translated titles, alternate romanizations, punctuation
+# differences) - not worth it given tightening the duration tolerance
+# earlier already caused real over-rejection problems.
+_MIN_TITLE_SIMILARITY = 0.5
 
 
 class TrackNotFoundError(Exception):
-    """Raised when no search result's duration plausibly matches the Spotify
-    track on any source (YouTube, then SoundCloud, then Mail.ru Music) - e.g. the track isn't
-    really uploaded as a standalone song, so the top hit is something
-    unrelated (a mix, full album, etc.)."""
+    """Raised when no search result plausibly matches the Spotify track on
+    any source (YouTube, then SoundCloud, then Mail.ru Music) - either
+    because no result's title looks like the same song (a live version,
+    remix, cover, or an unrelated track - see _filter_candidates_by_title),
+    or because no title-plausible result's duration is close enough (see
+    _pick_best_duration_match) - e.g. the track isn't really uploaded as a
+    standalone song, so the top hits are something unrelated (a mix, full
+    album, etc.)."""
 
 
 class AlbumDownloadError(Exception):
@@ -483,6 +506,92 @@ def _pick_best_duration_match(entries: list[dict], expected_duration_sec: float)
     if abs(best["duration"] - expected_duration_sec) <= tolerance:
         return best
     return None
+
+
+_TITLE_BRACKETED_RE = re.compile(r"[\(\[][^)\]]*[\)\]]")
+_TITLE_FEAT_RE = re.compile(r"\b(feat\.?|ft\.?|featuring)\b.*$", re.IGNORECASE)
+_TITLE_PUNCTUATION_RE = re.compile(r"[^\w\s]")
+_TITLE_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_title(text: str) -> str:
+    """Lowercase, strip bracketed noise ("(Official Video)", "[HD]") and a
+    trailing feat./ft. credit, then punctuation - all for comparing a search
+    result's messy title against Spotify's clean one. Punctuation becomes a
+    space, not nothing, so e.g. "Anti-Hero" doesn't collapse into the single
+    token "antihero" and silently stop matching "Anti Hero"-style variants."""
+    text = _TITLE_BRACKETED_RE.sub(" ", text)
+    text = _TITLE_FEAT_RE.sub(" ", text)
+    text = _TITLE_PUNCTUATION_RE.sub(" ", text)
+    return _TITLE_WHITESPACE_RE.sub(" ", text).strip().lower()
+
+
+def _title_similarity(candidate_title: str, artist: str, target_title: str) -> float:
+    """0.0-1.0 text-similarity score between a search result's title and the
+    Spotify track it's supposed to be. Takes the max against both the bare
+    target title and "artist target_title" combined, since a candidate title
+    is often "Artist - Song (Official Video)" while Spotify's own title is
+    just "Song" - comparing against title-alone already scores well for most
+    real results, but adding the artist-prefixed comparison gives short
+    titles with long channel-name/tag noise more room to still match."""
+    candidate_norm = _normalize_title(candidate_title)
+    title_norm = _normalize_title(target_title)
+    artist_title_norm = _normalize_title(f"{artist} {target_title}")
+    return max(
+        difflib.SequenceMatcher(None, candidate_norm, title_norm).ratio(),
+        difflib.SequenceMatcher(None, candidate_norm, artist_title_norm).ratio(),
+    )
+
+
+# Deliberately excludes words that are routinely part of legitimate official
+# titles - "edit"/"mix" ("Radio Edit", "Extended Mix", "Original Mix" are
+# literal official track names, especially in dance/electronic catalogs),
+# "remaster"/"remastered" (a legitimate reissue of the same song, not an
+# alternate version), "version"/"demo"/"session" (too generic/ambiguous on
+# their own). Including any of those would reject correct results constantly.
+_UNWANTED_MARKER_KEYWORDS = re.compile(
+    r"\b("
+    r"live|remix|cover|acoustic|instrumental|karaoke|tribute|unplugged|"
+    r"acapella|a cappella|mashup|medley|sped up|slowed|nightcore|"
+    r"type beat|backing track"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _has_unwanted_marker(candidate_title: str, target_title: str) -> bool:
+    """True if candidate_title has a live/remix/cover/etc. marker word that
+    target_title doesn't also have. The symmetry check matters: a track
+    genuinely titled e.g. "Live and Let Die", or one whose canonical Spotify
+    release actually is a live/acoustic recording, carries that same marker
+    word in its own title, so it's correctly never rejected - only a
+    candidate that introduces a marker the real track doesn't have gets
+    excluded."""
+    candidate_markers = set(m.lower() for m in _UNWANTED_MARKER_KEYWORDS.findall(candidate_title))
+    if not candidate_markers:
+        return False
+    target_markers = set(m.lower() for m in _UNWANTED_MARKER_KEYWORDS.findall(target_title))
+    return bool(candidate_markers - target_markers)
+
+
+def _filter_candidates_by_title(entries: list[dict], artist: str, target_title: str) -> list[dict]:
+    """Pre-filter search entries to ones whose title plausibly matches the
+    target track, before duration is ever considered (see
+    _download_from_source). An entry with no title at all passes through
+    unfiltered - fail-open on missing data, same as _pick_best_duration_match
+    only filtering entries that actually have a duration."""
+    filtered = []
+    for entry in entries:
+        candidate_title = entry.get("title")
+        if not candidate_title:
+            filtered.append(entry)
+            continue
+        if _has_unwanted_marker(candidate_title, target_title):
+            continue
+        if _title_similarity(candidate_title, artist, target_title) < _MIN_TITLE_SIMILARITY:
+            continue
+        filtered.append(entry)
+    return filtered
 
 
 def _youtube_download_target(entry: dict) -> str:
@@ -599,16 +708,33 @@ def _download_from_source(
     source: dict, artist: str, title: str, expected_duration_sec: Optional[float], file_path: str
 ) -> None:
     """Try a single source (SoundCloud, YouTube, or Mail.ru Music); raises on
-    any failure - no plausible duration match, or a real yt-dlp download
-    error - for the caller to catch and move on to the next source."""
+    any failure - no title-plausible candidate, no plausible duration match,
+    or a real yt-dlp download error - for the caller to catch and move on to
+    the next source."""
     search_query = source["build_search_query"](artist, title)
 
     download_target = search_query
     if expected_duration_sec is not None:
         entries = _search_entries(search_query)
-        best = _pick_best_duration_match(entries, expected_duration_sec)
+        if not entries:
+            raise TrackNotFoundError(f"no {source['label']} search results found")
+        title_filtered = _filter_candidates_by_title(entries, artist, title)
+        if not title_filtered:
+            # Deliberately not falling back to raw `entries` for a
+            # duration-only match here - that would defeat the whole point
+            # in exactly the case that matters most: if every top candidate
+            # is a live/remix/unrelated result, picking the closest-duration
+            # one among them reproduces the original bug this filter exists
+            # to fix. The multi-source loop in download_track_audio() is the
+            # correct escape valve for "this source had nothing good," not a
+            # silent per-source downgrade to the weaker check.
+            raise TrackNotFoundError(
+                f"no title-plausible {source['label']} result out of {len(entries)} candidates "
+                f"(all appeared to be live/remix/cover versions or a different song)"
+            )
+        best = _pick_best_duration_match(title_filtered, expected_duration_sec)
         if best is None:
-            closest = min((e["duration"] for e in entries if e.get("duration") is not None), default=None)
+            closest = min((e["duration"] for e in title_filtered if e.get("duration") is not None), default=None)
             raise TrackNotFoundError(
                 f"no matching-length {source['label']} result "
                 f"(expected ~{expected_duration_sec:.0f}s, closest candidate was "
@@ -678,13 +804,17 @@ def download_track_audio(
     don't have to guess.
 
     If expected_duration_sec is known (from Spotify's track metadata), each
-    source's top handful of search results are checked against it first and
-    the closest in-tolerance one is downloaded - rather than blindly
-    downloading the #1 hit when nothing matches. Without this, a track that
-    isn't really uploaded as a standalone song can silently download
-    something wildly unrelated (e.g. a multi-hour mix) as if it were the real
-    track. Only raises TrackNotFoundError (aggregating every source's
-    specific rejection reason) once every source has been tried and failed.
+    source's top handful of search results are first filtered to ones whose
+    title plausibly matches (rejecting live/remix/cover versions and
+    unrelated songs - see _filter_candidates_by_title), then the closest
+    in-tolerance one by duration is downloaded - rather than blindly
+    downloading the #1 hit, or picking whichever result merely has the
+    closest runtime regardless of whether it's actually the same song.
+    Without this, a track that isn't really uploaded as a standalone song
+    (or one whose top results are dominated by a live/remix version) can
+    silently download something wrong as if it were the real track. Only
+    raises TrackNotFoundError (aggregating every source's specific rejection
+    reason) once every source has been tried and failed.
     """
     failure_reasons = []
     for source in _AUDIO_SOURCES:
