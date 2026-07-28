@@ -23,7 +23,18 @@ from typing import Callable, Optional
 from starlette.concurrency import run_in_threadpool
 
 JOB_TTL_SECONDS = 60 * 60  # expire jobs (and their files) after 1 hour
-DOWNLOAD_WORKER_COUNT = 2  # concurrency cap - each download job spawns yt-dlp/ffmpeg subprocesses
+# Dropped from 2 to 1 - confirmed live via Render's Events log ("Ran out of
+# memory (used over 512MB)") repeatedly OOM-killing the instance mid-download.
+# Each download job runs yt-dlp + ffmpeg + a Node process (solving YouTube's
+# JS challenge, minting a PO token - see album_downloader.py's YouTube
+# source), and two of those full pipelines running at once is real sustained
+# memory pressure the free tier's 512MB cap can't absorb - worse once
+# YOUTUBE_COOKIES_PATH actually started working (see CLAUDE.md), since more
+# tracks now run this full heavy pipeline to completion instead of dying
+# early on the bot-check. Serializes downloads within a batch (slower
+# wall-clock time for a multi-album batch) in exchange for not losing
+# in-flight jobs to an OOM restart.
+DOWNLOAD_WORKER_COUNT = 1
 SCAN_WORKER_COUNT = 1  # scans are rare/one-shot per user; keep concurrent Spotify calls low
 
 # A rate_limited job (scan or download) auto-requeues itself (same job id, so
