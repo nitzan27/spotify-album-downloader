@@ -583,11 +583,18 @@ def _title_similarity(candidate_title: str, artist: str, target_title: str) -> f
 # "remaster"/"remastered" (a legitimate reissue of the same song, not an
 # alternate version), "version"/"demo"/"session" (too generic/ambiguous on
 # their own). Including any of those would reject correct results constantly.
+# "midi"/"recreation"/"practice" added after a real case (Geese - "Cowboy
+# Nudes") where every legitimately-labeled cover/live candidate was correctly
+# rejected, but a fan-made "(midi recreation)" and a "[low range practice]"
+# upload both scored a near-perfect title-similarity AND an in-tolerance
+# duration match, so one of them won and got silently delivered as if it
+# were the real studio track - a worse outcome than a clean failure. None of
+# these three words plausibly appears in a real official single/song title.
 _UNWANTED_MARKER_KEYWORDS = re.compile(
     r"\b("
     r"live|remix|cover|acoustic|instrumental|karaoke|tribute|unplugged|"
     r"acapella|a cappella|mashup|medley|sped up|slowed|nightcore|"
-    r"type beat|backing track"
+    r"type beat|backing track|midi|recreation|practice"
     r")\b",
     re.IGNORECASE,
 )
@@ -724,8 +731,20 @@ _AUDIO_SOURCES = [
 ]
 
 
-def _search_entries(search_query: str) -> list[dict]:
+def _search_entries(search_query: str, cookiefile: Optional[str] = None) -> list[dict]:
+    """cookiefile is optional and only meaningful for YouTube - without it,
+    the search itself runs as an anonymous, logged-out request, which
+    confirmed live can return literally zero results for an innocuous query
+    that merely contains a word associated with adult content (e.g. a real
+    song titled "Cowboy Nudes") even though the same query from a real,
+    logged-in browser session surfaces the actual video fine - anonymous
+    YouTube search appears to apply stricter content moderation than a
+    logged-in session does. Passing the same cookiefile the download step
+    already uses (see _yt_dlp_cookiefile_path) makes the search itself run
+    as that authenticated session instead."""
     search_opts = {"extract_flat": "in_playlist", "quiet": True, "no_warnings": True}
+    if cookiefile:
+        search_opts["cookiefile"] = cookiefile
     with yt_dlp.YoutubeDL(search_opts) as ydl:
         info = ydl.extract_info(search_query, download=False)
     entries = (info or {}).get("entries") or []
@@ -746,10 +765,13 @@ def _download_from_source(
     or a real yt-dlp download error - for the caller to catch and move on to
     the next source."""
     search_query = source["build_search_query"](artist, title)
+    cookiefile = (
+        _yt_dlp_cookiefile_path(source["cookiefile_env_var"]) if source.get("cookiefile_env_var") else None
+    )
 
     download_target = search_query
     if expected_duration_sec is not None:
-        entries = _search_entries(search_query)
+        entries = _search_entries(search_query, cookiefile=cookiefile)
         if not entries:
             raise TrackNotFoundError(f"no {source['label']} search results found")
         title_filtered = _filter_candidates_by_title(entries, artist, title)
@@ -793,9 +815,7 @@ def _download_from_source(
         "quiet": True,
         "no_warnings": True,
         "extractor_args": source["extractor_args"],
-        "cookiefile": (
-            _yt_dlp_cookiefile_path(source["cookiefile_env_var"]) if source.get("cookiefile_env_var") else None
-        ),
+        "cookiefile": cookiefile,
         # YouTube's web client format URLs are signature/n-parameter
         # obfuscated; solving that now requires both a JS runtime (node,
         # already installed for the bgutil sidecar - see the Dockerfile) and
